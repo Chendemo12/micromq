@@ -30,5 +30,6 @@ func main() {
 		Logger: zaplog.NewLogger(conf).Sugar(),
 	}
 
-	handler.SetEngine(engine.New(size)).Run()
+	handler.SetEngine(engine.New(size))
+	handler.Run()
 }

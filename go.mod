@@ -2,7 +2,10 @@ module github.com/Chendemo12/synshare-mq
 
 go 1.20
 
-require github.com/Chendemo12/functools v0.1.25
+require (
+	github.com/Chendemo12/fastapi-tool v0.1.0
+	github.com/Chendemo12/functools v0.1.26
+)
 
 require (
 	github.com/fsnotify/fsnotify v1.5.4 // indirect

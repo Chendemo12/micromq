@@ -2,51 +2,16 @@ package engine
 
 import (
 	"container/list"
-	"github.com/Chendemo12/functools/tcp"
 	"sync"
 	"time"
 )
-
-type Message struct {
-	Topic       string
-	Offset      uint64
-	Key         []byte
-	Value       []byte
-	ProductTime time.Time
-}
-
-type Consumer interface {
-	Topics() []string
-	Handler(msg *Message)
-}
-
-type _consumer struct {
-	meta Consumer
-	tcp  *tcp.Remote
-}
-
-func (c *_consumer) setConn(r *tcp.Remote) {
-	c.tcp = r
-}
-
-func NewTopic(name string, historySize int) *Topic {
-	return &Topic{
-		Name:        name,
-		HistorySize: historySize,
-		offset:      0,
-		queue:       make(chan *Message, historySize),
-		consumers:   make([]*_consumer, 0),
-		history:     NewQueue(historySize),
-		mu:          &sync.Mutex{},
-	}
-}
 
 type Topic struct {
 	Name        string
 	HistorySize int
 	offset      uint64
 	queue       chan *Message
-	consumers   []*_consumer
+	consumers   *sync.Map
 	history     *Queue
 	mu          *sync.Mutex
 }
@@ -61,21 +26,43 @@ func (t *Topic) makeOffset() uint64 {
 	return of
 }
 
-func (t *Topic) AddConsumer(con Consumer) {
-	t.consumers = append(t.consumers, &_consumer{
-		meta: con,
-	})
+func (t *Topic) AddConsumer(con *Consumer) {
+	t.consumers.Store(con.Addr, con)
 }
 
-func (t *Topic) Product(key, value []byte) {
-	msg := &Message{
-		Topic:       t.Name,
-		Offset:      t.makeOffset(),
-		Key:         key,
-		Value:       value,
-		ProductTime: time.Now(),
+func (t *Topic) GetConsumer(addr string) *Consumer {
+	v, ok := t.consumers.Load(addr)
+	if !ok {
+		return nil
+	} else {
+		return v.(*Consumer)
 	}
+}
+
+func (t *Topic) DelConsumer(addr string) {
+	t.consumers.Delete(addr)
+}
+
+func (t *Topic) Product(msg *Message) uint64 {
+	offset := t.makeOffset()
+	msg.Offset = offset
+	msg.ProductTime = time.Now()
+
 	t.queue <- msg
+
+	return offset
+}
+
+func NewTopic(name string, historySize int) *Topic {
+	return &Topic{
+		Name:        name,
+		HistorySize: historySize,
+		offset:      0,
+		queue:       make(chan *Message, historySize),
+		consumers:   &sync.Map{},
+		history:     NewQueue(historySize),
+		mu:          &sync.Mutex{},
+	}
 }
 
 type Queue struct {
