@@ -2,6 +2,7 @@ package engine
 
 import (
 	"container/list"
+	"github.com/Chendemo12/fastapi-tool/helper"
 	"sync"
 	"time"
 )
@@ -53,8 +54,32 @@ func (t *Topic) Product(msg *Message) uint64 {
 	return offset
 }
 
+func (t *Topic) Consume() {
+	for msg := range t.queue {
+		bytes, err := helper.JsonMarshal(msg)
+		if err != nil {
+			t.history.Append(msg)
+			continue
+		}
+
+		t.consumers.Range(func(key, value any) bool {
+			cons := value.(*Consumer)
+			_, err2 := cons.Conn.Write(bytes)
+			if err2 != nil {
+			} else {
+				go func() {
+					_ = cons.Conn.Drain()
+				}()
+			}
+			return true
+		})
+
+		t.history.Append(msg)
+	}
+}
+
 func NewTopic(name string, historySize int) *Topic {
-	return &Topic{
+	t := &Topic{
 		Name:        name,
 		HistorySize: historySize,
 		offset:      0,
@@ -63,6 +88,9 @@ func NewTopic(name string, historySize int) *Topic {
 		history:     NewQueue(historySize),
 		mu:          &sync.Mutex{},
 	}
+	go t.Consume()
+
+	return t
 }
 
 type Queue struct {
