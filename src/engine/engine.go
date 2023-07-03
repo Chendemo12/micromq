@@ -83,6 +83,8 @@ func (e *Engine) HandleRegisterMessage(content []byte, r *tcp.Remote) ([]byte, e
 
 func (e *Engine) HandleProductionMessage(content []byte, addr string) ([]byte, error) {
 	msg := mPool.Get()
+	// TODO： Put(_)
+	// TODO: 分离生产者和消费者
 
 	err := helper.JsonUnmarshal(content, msg)
 	if err != nil {
