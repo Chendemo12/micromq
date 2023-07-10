@@ -41,8 +41,8 @@ github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03
 github.com/BurntSushi/xgb v0.0.0-20160522181843-27f122750802/go.mod h1:IVnqGOEym/WlBOVXweHU+Q+/VP0lqqI8lqeDx9IjBqo=
 github.com/Chendemo12/fastapi-tool v0.1.0 h1:p8GXH55aN/CjTthlhimDrA/hCQtKCKYPDlQN1I5z440=
 github.com/Chendemo12/fastapi-tool v0.1.0/go.mod h1:kSdfAFgGdinzN/9/DQzwN4FvAr3VZRrRZPX5W3EulSo=
-github.com/Chendemo12/functools v0.1.26 h1:BIzhpTSOdSjK1if7xIVSQnI5voji3ssGzuc/a1tzTXg=
-github.com/Chendemo12/functools v0.1.26/go.mod h1:TSFZoVOL7/SWo8PCvnI5CEm6gtIlun7Z0dDfqd0EmeU=
+github.com/Chendemo12/functools v0.1.27 h1:2woYufAsJvtRxYTIm9mYajdOD21dF9RjR4zheCOOcyw=
+github.com/Chendemo12/functools v0.1.27/go.mod h1:TSFZoVOL7/SWo8PCvnI5CEm6gtIlun7Z0dDfqd0EmeU=
 github.com/census-instrumentation/opencensus-proto v0.2.1/go.mod h1:f6KPmirojxKA12rnyqOA5BBL4O983OfeGPqjHWSTneU=
 github.com/chzyer/logex v1.1.10/go.mod h1:+Ywpsq7O8HXn0nuIou7OrIPyXbp3wmkHB+jjWRnGsAI=
 github.com/chzyer/readline v0.0.0-20180603132655-2972be24d48e/go.mod h1:nSuG5e5PlCu98SY8svDHJxuZscDgtXS6KTTbou5AhLI=

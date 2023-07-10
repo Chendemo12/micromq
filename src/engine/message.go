@@ -20,6 +20,13 @@ type Message struct {
 	ProductTime time.Time
 }
 
+func (m *Message) Reset() {
+	m.Topic = ""
+	m.Offset = 0
+	m.Key = nil
+	m.Value = nil
+}
+
 type MessageResponse struct {
 	Result      bool      `json:"result"`
 	Offset      uint64    `json:"offset,omitempty"`
@@ -34,9 +41,17 @@ const (
 	AllConfirm    AckType = "all"
 )
 
+type LinkType string
+
+const (
+	ConsumerLinkType LinkType = "CONSUMER"
+	ProducerLinkType LinkType = "PRODUCER"
+)
+
 type RegisterMessage struct {
 	Topics []string `json:"topics"`
 	Ack    AckType  `json:"ack"`
+	Type   LinkType `json:"type"`
 }
 
 // --------------------------------------------------------------------------------------
