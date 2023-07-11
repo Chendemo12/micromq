@@ -1,14 +1,30 @@
 package engine
 
 import (
-	"github.com/Chendemo12/fastapi-tool/helper"
-	"github.com/Chendemo12/functools/tcp"
+	"github.com/Chendemo12/fastapi-tool/logger"
+	"github.com/Chendemo12/synshare-mq/src/proto"
+	"os"
+	"os/signal"
 	"sync"
 )
 
+var mPool = proto.NewMessagePool()
+var mrPool = proto.NewMessageRespPool()
+
+type Config struct {
+	Host        string       `json:"host"`
+	Port        string       `json:"port"`
+	MaxOpenConn int          `json:"max_open_conn"`
+	BufferSize  int          `json:"buffer_size"`
+	Logger      logger.Iface `json:"-"`
+}
+
 type Engine struct {
-	HistorySize int
-	topics      *sync.Map
+	conf      *Config
+	producers []*Producer // 生产者
+	consumers []*Consumer // 消费者
+	topics    *sync.Map
+	transfer  *Transfer
 }
 
 // RangeTopic if false returned, for-loop will stop
@@ -19,7 +35,7 @@ func (e *Engine) RangeTopic(fn func(topic *Topic) bool) {
 }
 
 func (e *Engine) AddTopic(name string) *Topic {
-	topic := NewTopic(name, e.HistorySize)
+	topic := NewTopic(name, e.conf.BufferSize)
 	e.topics.Store(name, topic)
 	return topic
 }
@@ -27,6 +43,7 @@ func (e *Engine) AddTopic(name string) *Topic {
 // GetTopic 获取topic,并在不存在时自动新建一个topic
 func (e *Engine) GetTopic(name string) *Topic {
 	var topic *Topic
+
 	v, ok := e.topics.Load(name)
 	if !ok {
 		topic = e.AddTopic(name)
@@ -39,6 +56,7 @@ func (e *Engine) GetTopic(name string) *Topic {
 
 func (e *Engine) GetTopicOffset(name string) uint64 {
 	var offset uint64
+
 	e.RangeTopic(func(topic *Topic) bool {
 		if topic.Name == name {
 			offset = topic.offset
@@ -50,70 +68,86 @@ func (e *Engine) GetTopicOffset(name string) uint64 {
 	return offset
 }
 
-func (e *Engine) SendMessage(msg *Message) uint64 {
-	return e.GetTopic(msg.Topic).Product(msg)
+// Publisher 发布消息,并返回此消息在当前topic中的偏移量
+func (e *Engine) Publisher(msg *proto.Message) uint64 {
+	return e.GetTopic(msg.Topic).Publisher(msg)
 }
 
+// RemoveConsumer 删除一个消费者
 func (e *Engine) RemoveConsumer(addr string) {
-	e.RangeTopic(func(topic *Topic) bool {
-		topic.DelConsumer(addr)
-		return true
-	})
-}
-
-func (e *Engine) HandleRegisterMessage(content []byte, r *tcp.Remote) ([]byte, error) {
-	msg := &RegisterMessage{}
-	err := helper.JsonUnmarshal(content, msg)
-	if err != nil {
-		return nil, err
-	}
-	for _, name := range msg.Topics {
-		e.GetTopic(name).AddConsumer(&Consumer{
-			Conf: &ConsumerConfig{
-				Topics: msg.Topics,
-				Ack:    msg.Ack,
-			},
-			Addr: r.Addr(),
-			Conn: r,
-		})
-	}
-
-	return nil, nil
-}
-
-func (e *Engine) HandleProductionMessage(content []byte, addr string) ([]byte, error) {
-	msg := mPool.Get()
-	// TODO： Put(_)
-	// TODO: 分离生产者和消费者
-
-	err := helper.JsonUnmarshal(content, msg)
-	if err != nil {
-		return nil, err
-	}
-
-	topic := e.GetTopic(msg.Topic)
-	offset := topic.Product(msg)
-	consumer := topic.GetConsumer(addr)
-	if consumer != nil && consumer.NeedConfirm() {
-		// 需要返回确认消息给客户端
-		resp := &MessageResponse{
-			Result:      true,
-			Offset:      offset,
-			ReceiveTime: msg.ProductTime,
+	for _, consumer := range e.consumers {
+		if consumer == nil || consumer.Conn == nil {
+			continue
 		}
-
-		return helper.JsonMarshal(resp)
+		if consumer.Addr == addr {
+			for _, name := range consumer.Conf.Topics {
+				e.GetTopic(name).RemoveConsumer(addr)
+			}
+		}
 	}
-
-	return nil, nil
 }
 
-func New(historySize int) *Engine {
-	if historySize == 0 {
-		historySize = 100
+func (e *Engine) Run() {
+	go func() {
+		err := e.transfer.Start()
+		if err != nil {
+			e.conf.Logger.Error("server starts failed, ", err)
+			os.Exit(1)
+		}
+	}()
+
+	// 关闭开关, buffered
+	quit := make(chan os.Signal, 1)
+	signal.Notify(quit, os.Interrupt)
+	<-quit // 阻塞进程，直到接收到停止信号,准备关闭程序
+
+	e.transfer.Stop()
+}
+
+func New(c ...Config) *Engine {
+	var d Config
+
+	if len(c) > 0 {
+		d = c[0]
+	} else {
+		d = Config{
+			Host:        "127.0.0.1",
+			Port:        "9999",
+			MaxOpenConn: 50,
+			BufferSize:  200,
+			Logger:      logger.NewDefaultLogger(),
+		}
 	}
-	return &Engine{
-		HistorySize: historySize,
-		topics:      &sync.Map{},
+
+	if d.BufferSize == 0 {
+		d.BufferSize = 100
 	}
+	if d.Logger == nil {
+		d.Logger = logger.NewDefaultLogger()
+	}
+
+	if !(d.MaxOpenConn > 0 && d.MaxOpenConn <= 100) {
+		d.MaxOpenConn = 50
+	}
+
+	eng := &Engine{
+		conf: &Config{
+			Host:        d.Host,
+			Port:        d.Port,
+			MaxOpenConn: d.MaxOpenConn,
+			BufferSize:  d.BufferSize,
+			Logger:      d.Logger,
+		},
+		producers: make([]*Producer, d.MaxOpenConn),
+		consumers: make([]*Consumer, d.MaxOpenConn),
+		topics:    &sync.Map{},
+	}
+
+	eng.transfer = &Transfer{
+		logger: d.Logger,
+		mq:     eng,
+	}
+	eng.transfer.SetEngine(eng).init()
+
+	return eng
 }

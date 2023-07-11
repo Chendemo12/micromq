@@ -2,7 +2,7 @@ package sdk
 
 import (
 	"github.com/Chendemo12/functools/tcp"
-	"github.com/Chendemo12/synshare-mq/src/engine"
+	"github.com/Chendemo12/synshare-mq/src/proto"
 	"sync"
 	"time"
 )
@@ -10,19 +10,19 @@ import (
 type Config struct {
 	Host string `json:"host"`
 	Port string `json:"port"`
-	Ack  engine.AckType
+	Ack  proto.AckType
 }
 
 type Link struct {
-	kind    engine.LinkType
+	kind    proto.LinkType
 	conf    *Config         // 配置参数
 	client  *tcp.Client     // 对端连接
 	handler tcp.HandlerFunc // 消息处理程序
 	mu      *sync.Mutex
 }
 
-func (l *Link) IsConsumer() bool { return l.kind == engine.ConsumerLinkType }
-func (l *Link) IsProducer() bool { return l.kind == engine.ProducerLinkType }
+func (l *Link) IsConsumer() bool { return l.kind == proto.ConsumerLinkType }
+func (l *Link) IsProducer() bool { return l.kind == proto.ProducerLinkType }
 
 func (l *Link) Connect() error {
 	c := tcp.NewTcpClient(&tcp.TcpcConfig{

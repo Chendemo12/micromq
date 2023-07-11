@@ -3,34 +3,31 @@ package sdk
 import (
 	"github.com/Chendemo12/fastapi-tool/helper"
 	"github.com/Chendemo12/functools/tcp"
-	"github.com/Chendemo12/synshare-mq/src/engine"
+	"github.com/Chendemo12/synshare-mq/src/proto"
 	"sync"
 )
-
-type ProductionMessage = engine.Message
-type ProductionMessageResp = engine.MessageResponse
 
 type Producer struct {
 	link        *Link // 底层数据连接
 	isConnected bool
 	isRegister  bool // 是否注册成功
-	pool        *sync.Pool
-	queue       chan *ProductionMessage
+	pool        *proto.MessagePool
+	queue       chan *proto.Message
 }
 
 func (p *Producer) OnAccepted(r *tcp.Remote) error {
 	p.isConnected = true
 
-	msg := engine.RegisterMessage{
+	msg := &proto.RegisterMessage{
 		Topics: []string{},
-		Ack:    engine.AllConfirm,
-		Type:   engine.ProducerLinkType,
+		Ack:    proto.AllConfirm,
+		Type:   proto.ProducerLinkType,
 	}
 	bytes, err := helper.JsonMarshal(msg)
 	if err != nil {
 		return err
 	}
-	_, err = r.Write([]byte{engine.RegisterMessageType})
+	_, err = r.Write([]byte{proto.RegisterMessageType})
 	_, err = r.Write(bytes)
 
 	return r.Drain()
@@ -42,18 +39,16 @@ func (p *Producer) OnClosed(r *tcp.Remote) error {
 }
 
 func (p *Producer) Handler(r *tcp.Remote) error {
-	if p.link.conf.Ack == engine.NoConfirm {
+	if p.link.conf.Ack == proto.NoConfirm {
 		return nil
 	}
 	// TODO: ack 未实现
 	return nil
 }
 
-func (p *Producer) NewRecord() *ProductionMessage {
-	return p.pool.Get().(*ProductionMessage)
-}
+func (p *Producer) NewRecord() *proto.Message { return p.pool.Get() }
 
-func (p *Producer) Send(msg *ProductionMessage) error {
+func (p *Producer) Send(msg *proto.Message) error {
 	if msg.Topic == "" {
 		return ErrTopicEmpty
 	}
@@ -61,7 +56,7 @@ func (p *Producer) Send(msg *ProductionMessage) error {
 	return nil
 }
 
-func (p *Producer) Publisher(msg *ProductionMessage) error { return p.Send(msg) }
+func (p *Producer) Publisher(msg *proto.Message) error { return p.Send(msg) }
 
 func (p *Producer) send() {
 	for msg := range p.queue {
@@ -70,8 +65,7 @@ func (p *Producer) send() {
 		if err != nil {
 			continue
 		}
-		// TODO: client 未实现发数据
-		_, err = p.link.client.Write([]byte{engine.ProductionMessageType})
+		_, err = p.link.client.Write([]byte{proto.ProductionMessageType})
 		_, err = p.link.client.Write(bytes)
 		go func() { // 异步发送消息
 			err = p.link.client.Drain()
@@ -93,13 +87,11 @@ func (p *Producer) start() error {
 
 func NewAsyncProducer(conf Config) (*Producer, error) {
 	p := &Producer{
-		queue: make(chan *ProductionMessage, 10),
-		pool: &sync.Pool{
-			New: func() any { return &ProductionMessage{} },
-		},
+		queue: make(chan *proto.Message, 10),
+		pool:  proto.NewMessagePool(),
 	}
 	p.link = &Link{
-		kind:    engine.ProducerLinkType,
+		kind:    proto.ProducerLinkType,
 		conf:    &Config{Host: conf.Host, Port: conf.Port},
 		handler: p,
 		mu:      &sync.Mutex{},
