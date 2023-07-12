@@ -12,10 +12,11 @@ func (*NoCopy) Unlock() {}
 
 // Message 消费者或生产者消息记录, 不允许复制
 type Message struct {
+	// TODO: 修改协议，不采用json序列化
 	noCopy      NoCopy
 	Topic       string
-	Key         []byte
-	Value       []byte
+	Key         [8]byte // base64序列化后的字符串
+	Value       []byte  // base64序列化后的字符串
 	Offset      uint64
 	ProductTime time.Time
 }
