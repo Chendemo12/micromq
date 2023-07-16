@@ -11,7 +11,7 @@ import (
 
 type ConsumerHandler interface {
 	Topics() []string
-	Handler(record *proto.Message)
+	Handler(record *proto.ConsumerMessage)
 	WhenConnected() // 当连接成功时,发出的信号
 	WhenClosed()    // 当连接中断时,发出的信号
 }
@@ -70,7 +70,7 @@ func (c *Consumer) Handler(r *tcp.Remote) error {
 	switch content[0] {
 	case proto.RegisterMessageRespType:
 		c.isRegister = true
-	case proto.ProductionMessageType:
+	case proto.PMessageType:
 		go c.handleMessage(content[1:])
 	}
 	return nil

@@ -11,8 +11,8 @@ type Producer struct {
 	link        *Link // 底层数据连接
 	isConnected bool
 	isRegister  bool // 是否注册成功
-	pool        *proto.MessagePool
-	queue       chan *proto.Message
+	pool        *proto.PMessagePool
+	queue       chan *proto.ProducerMessage
 }
 
 func (p *Producer) OnAccepted(r *tcp.Remote) error {
@@ -46,9 +46,9 @@ func (p *Producer) Handler(r *tcp.Remote) error {
 	return nil
 }
 
-func (p *Producer) NewRecord() *proto.Message { return p.pool.Get() }
+func (p *Producer) NewRecord() *proto.PMessage { return p.pool.Get() }
 
-func (p *Producer) Send(msg *proto.Message) error {
+func (p *Producer) Send(msg *proto.PMessage) error {
 	if msg.Topic == "" {
 		return ErrTopicEmpty
 	}
@@ -56,7 +56,7 @@ func (p *Producer) Send(msg *proto.Message) error {
 	return nil
 }
 
-func (p *Producer) Publisher(msg *proto.Message) error { return p.Send(msg) }
+func (p *Producer) Publisher(msg *proto.PMessage) error { return p.Send(msg) }
 
 func (p *Producer) send() {
 	for msg := range p.queue {
@@ -65,7 +65,7 @@ func (p *Producer) send() {
 		if err != nil {
 			continue
 		}
-		_, err = p.link.client.Write([]byte{proto.ProductionMessageType})
+		_, err = p.link.client.Write([]byte{proto.PMessageType})
 		_, err = p.link.client.Write(bytes)
 		go func() { // 异步发送消息
 			err = p.link.client.Drain()
@@ -87,7 +87,7 @@ func (p *Producer) start() error {
 
 func NewAsyncProducer(conf Config) (*Producer, error) {
 	p := &Producer{
-		queue: make(chan *proto.Message, 10),
+		queue: make(chan *proto.PMessage, 10),
 		pool:  proto.NewMessagePool(),
 	}
 	p.link = &Link{

@@ -1,10 +1,15 @@
 package proto
 
+type MessageType byte
+
 const (
-	RegisterMessageType       byte = 0
-	RegisterMessageRespType   byte = 1
-	ProductionMessageType     byte = 100
-	ProductionMessageRespType byte = 101
+	ValidMessageType        MessageType = 0
+	RegisterMessageType     MessageType = 1
+	RegisterMessageRespType MessageType = 2
+	PMessageType            MessageType = 101
+	PMessageRespType        MessageType = 102
+	CMessageType            MessageType = 103
+	CMessageRespType        MessageType = 104
 )
 
 type AckType string
@@ -20,4 +25,9 @@ type LinkType string
 const (
 	ConsumerLinkType LinkType = "CONSUMER"
 	ProducerLinkType LinkType = "PRODUCER"
+)
+
+const (
+	FrameHead = 0x3C // 0x3C (可见字符: <)
+	FrameTail = 0x0D // 0x0D (回车符)
 )

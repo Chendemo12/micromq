@@ -1,31 +1,42 @@
+// Package proto 若涉及到字节序,则全部为大端序
 package proto
 
 import (
-	"sync"
+	"bytes"
+	"encoding/binary"
+	"io"
 	"time"
 )
 
-type NoCopy struct{}
-
-func (*NoCopy) Lock()   {}
-func (*NoCopy) Unlock() {}
-
-// Message 消费者或生产者消息记录, 不允许复制
-type Message struct {
-	// TODO: 修改协议，不采用json序列化
-	noCopy      NoCopy
-	Topic       string
-	Key         [8]byte // base64序列化后的字符串
-	Value       []byte  // base64序列化后的字符串
-	Offset      uint64
-	ProductTime time.Time
+// PMessage 生产者消息数据, 不允许复制
+type PMessage struct {
+	noCopy NoCopy
+	Topic  []byte // 字符串转字节
+	Key    []byte
+	Value  []byte
 }
 
-func (m *Message) Reset() {
-	m.Topic = ""
-	m.Offset = 0
+func (m *PMessage) Length() int { return len(m.Topic) + len(m.Key) + len(m.Value) }
+
+func (m *PMessage) Reset() {
+	m.Topic = nil
 	m.Key = nil
 	m.Value = nil
+}
+
+// CMessage 消费者消息记录, 不允许复制
+type CMessage struct {
+	Offset      []byte // uint64
+	ProductTime []byte // time.Time.Unix() 消息创建的Unix时间戳
+	Pm          *PMessage
+}
+
+func (m *CMessage) Length() int { return 16 + m.Pm.Length() }
+
+func (m *CMessage) Reset() {
+	m.Offset = make([]byte, 8)
+	m.ProductTime = make([]byte, 8)
+	m.Pm.Reset()
 }
 
 type MessageResponse struct {
@@ -47,44 +58,98 @@ type RegisterMessage struct {
 	Type   LinkType `json:"type"`
 }
 
-type MessagePool struct {
-	pool *sync.Pool
+// TransferFrame TCP传输协议帧, 可一次性传输多条消息
+type TransferFrame struct {
+	Head     byte        // 恒为 FrameHead
+	Type     MessageType // Data 包含的消息类型
+	DataSize []byte      // 标识消息总长度,2个字节, Data 的长度, 同样适用于多帧报文
+	Data     []byte      // 若干个消息
+	Checksum []byte      // Checksum 经典校验和算法,2个字节, Data 的校验和 TODO: 修改为[Type, Data] 的校验和
+	Tail     byte        // 恒为 FrameTail
 }
 
-func (m *MessagePool) Get() *Message {
-	v := m.pool.Get().(*Message)
-	v.Reset()
-	v.ProductTime = time.Now()
-	return v
-}
-
-func (m *MessagePool) Put(v *Message) {
-	v.Reset()
-	m.pool.Put(v)
-}
-
-func NewMessagePool() *MessagePool {
-	return &MessagePool{
-		pool: &sync.Pool{New: func() any { return &Message{} }},
+// TransferFrame.Data 字节序列说明, 无作用
+type container struct {
+	pms []struct {
+		TopicLength byte
+		Topic       []byte
+		KeyLength   byte
+		Key         []byte
+		ValueLength uint16
+		Value       []byte
+	}
+	cms []struct {
+		TopicLength byte
+		Topic       []byte
+		KeyLength   byte
+		Key         []byte
+		ValueLength uint16
+		Value       []byte
+		Offset      uint64
+		ProductTime int64 // time.Time.Unix()
 	}
 }
 
-type MessageRespPool struct {
-	pool *sync.Pool
+// Length 获得帧总长
+func (f *TransferFrame) Length() int { return len(f.Data) + 7 }
+
+func (f *TransferFrame) Reset() {
+	f.Head = FrameHead
+	f.Type = ValidMessageType
+	f.DataSize = make([]byte, 2)
+	f.Data = nil
+	f.Checksum = make([]byte, 2)
+	f.Tail = FrameTail
 }
 
-func (m *MessageRespPool) Get() *MessageResponse {
-	v := m.pool.Get().(*MessageResponse)
-	v.Reset()
-	return v
+func (f *TransferFrame) Read(buf []byte) (int, error) {
+	// TODO:
+	return 0, nil
 }
 
-func (m *MessageRespPool) Put(v *MessageResponse) {
-	m.pool.Put(v)
+func (f *TransferFrame) Write(buf []byte) (int, error) {
+	// TODO:
+	return 0, nil
 }
 
-func NewMessageRespPool() *MessageRespPool {
-	return &MessageRespPool{
-		pool: &sync.Pool{New: func() any { return &MessageResponse{} }},
+func (f *TransferFrame) buildFields() {
+	binary.BigEndian.AppendUint16(f.DataSize, uint16(len(f.Data)))
+	binary.BigEndian.AppendUint16(f.Checksum, CalcChecksum(f.Data))
+}
+
+func (f *TransferFrame) write(writer io.Writer) (i int, err error) {
+	n, err := writer.Write([]byte{FrameHead})
+	n, err = writer.Write([]byte{byte(f.Type)})
+	n, err = writer.Write(f.DataSize)
+	n, err = writer.Write(f.Data)
+	n, err = writer.Write(f.Checksum)
+
+	if err != nil {
+		return n, err
 	}
+
+	// 写入结束符
+	return writer.Write([]byte{FrameTail})
+}
+
+func (f *TransferFrame) WriteP(pms ...*PMessage) *bytes.Buffer {
+	f.Data = BuildPMessages(pms...)
+	f.buildFields()
+
+	content := make([]byte, f.Length())
+	stream := bytes.NewBuffer(content)
+
+	// TODO: TransferFrame 实现 io 接口
+	return stream
+}
+
+func (f *TransferFrame) WriteC(cms ...*CMessage) *bytes.Buffer {
+	f.Data = BuildCMessages(cms...) // 必须先为 Data 赋值
+	f.buildFields()
+
+	content := make([]byte, f.Length())
+	stream := bytes.NewBuffer(content)
+
+	// TODO: TransferFrame 实现 io 接口
+	return stream
 }

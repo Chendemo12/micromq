@@ -1,36 +1,15 @@
 package engine
 
 import (
-	"container/list"
-	"github.com/Chendemo12/fastapi-tool/helper"
+	"bytes"
+	"encoding/binary"
 	"github.com/Chendemo12/synshare-mq/src/proto"
 	"sync"
-	"sync/atomic"
 	"time"
 )
 
-type Counter struct {
-	count uint64
-}
-
-func (c *Counter) Increment() {
-	atomic.AddUint64(&c.count, 1)
-}
-
-func (c *Counter) Value() uint64 {
-	return atomic.LoadUint64(&c.count)
-}
-
-func (c *Counter) ValueBeforeIncrement() uint64 {
-	v := c.Value()
-	c.Increment()
-	return v
-}
-
-func (c *Counter) ValueAfterIncrement() uint64 {
-	c.Increment()
-	return c.Value()
-}
+var cmp = proto.NewCMPool()
+var framePool = proto.NewFramePool()
 
 type Event struct {
 	q chan struct{}
@@ -43,13 +22,15 @@ func (e *Event) Wait()       { <-e.q }
 func NewEvent() *Event { return &Event{q: make(chan struct{})} }
 
 type Topic struct {
-	Name           string              // 唯一标识
-	BufferSize     int                 // 生产者消息缓冲区大小
-	offset         uint64              // 当前数据偏移量
-	counter        *Counter            // 生产者消息计数器,用于计算数据偏移量
-	consumers      *sync.Map           // 全部消费者: {addr: Consumer}, TODO: slice
-	consumerQueue  chan *proto.Message // 等待消费者消费的数据, 若生产者消息发生了挤压,则会丢弃最早的未消费的数据
-	publisherQueue *Queue              // 生产者生产的数据
+	Name           []byte               // 唯一标识
+	BufferSize     int                  // 生产者消息缓冲区大小
+	offset         uint64               // 当前数据偏移量
+	counter        *proto.Counter       // 生产者消息计数器,用于计算数据偏移量
+	consumers      *sync.Map            // 全部消费者: {addr: Consumer}
+	consumerQueue  chan *proto.CMessage // 等待消费者消费的数据, 若生产者消息发生了挤压,则会丢弃最早的未消费的数据
+	publisherQueue *proto.Queue         // 生产者生产的数据: proto.Queue[*proto.CMessage]
+	// TODO: 移除通道 consumerQueue, 由计时器和 publisherEvent 事件触发,
+	// 一次性将队列里的所有数据全部发送给消费者
 	publisherEvent *Event
 	mu             *sync.Mutex
 }
@@ -62,9 +43,10 @@ func (t *Topic) makeOffset() uint64 {
 func (t *Topic) msgMove() {
 	for {
 		t.publisherEvent.Wait()
+
 		msg := t.publisherQueue.Front()
 		if msg != nil {
-			t.consumerQueue <- msg.(*proto.Message)
+			t.consumerQueue <- msg.(*proto.CMessage)
 		}
 	}
 }
@@ -86,23 +68,31 @@ func (t *Topic) RemoveConsumer(addr string) {
 	t.consumers.Delete(addr)
 }
 
-func (t *Topic) Publisher(msg *proto.Message) uint64 {
+// Publisher 发布消费者消息,此处会将来自生产者的消息转换成消费者消息
+func (t *Topic) Publisher(pm *proto.PMessage) uint64 {
 	offset := t.makeOffset()
-	msg.Offset = offset
-	msg.ProductTime = time.Now()
+	cm := cmp.Get()
+
+	binary.BigEndian.PutUint64(cm.Offset, offset)
+	binary.BigEndian.PutUint64(cm.ProductTime, uint64(time.Now().Unix()))
+	cm.Pm = pm
 
 	// 若缓冲区已满, 则丢弃最早的数据
-	t.publisherQueue.Append(msg)
+	t.publisherQueue.Append(cm)
 	t.publisherEvent.Set()
 
 	return offset
 }
 
 func (t *Topic) Consume() {
+	var stream *bytes.Buffer
+
 	for msg := range t.consumerQueue {
-		bytes, err := helper.JsonMarshal(msg)
-		mPool.Put(msg)
-		if err != nil {
+		frame := framePool.Get()
+		frame.Type = proto.CMessageType
+
+		stream = frame.WriteC(msg)
+		if stream == nil {
 			continue
 		}
 
@@ -112,24 +102,27 @@ func (t *Topic) Consume() {
 				return true
 			}
 			go func() {
-				_, _ = cons.Conn.Write(bytes)
+				// TODO: tcp.Remote 实现 WriteFrom(reader io.Reader) 方法
+				_, _ = cons.Conn.Write(stream.Bytes())
 				_ = cons.Conn.Drain()
 			}()
 
 			return true
 		})
+
+		framePool.Put(frame)
 	}
 }
 
-func NewTopic(name string, bufferSize int) *Topic {
+func NewTopic(name []byte, bufferSize int) *Topic {
 	t := &Topic{
 		Name:           name,
 		BufferSize:     bufferSize,
 		offset:         0,
-		counter:        &Counter{count: 0},
+		counter:        proto.NewCounter(),
 		consumers:      &sync.Map{},
-		consumerQueue:  make(chan *proto.Message, bufferSize),
-		publisherQueue: NewQueue(bufferSize),
+		consumerQueue:  make(chan *proto.CMessage, bufferSize),
+		publisherQueue: proto.NewQueue(bufferSize),
 		publisherEvent: NewEvent(),
 		mu:             &sync.Mutex{},
 	}
@@ -137,47 +130,4 @@ func NewTopic(name string, bufferSize int) *Topic {
 	go t.Consume()
 
 	return t
-}
-
-type Queue struct {
-	list     *list.List
-	capacity int
-	mu       *sync.Mutex
-}
-
-func NewQueue(capacity int) *Queue {
-	return &Queue{
-		list:     list.New(),
-		capacity: capacity,
-		mu:       &sync.Mutex{},
-	}
-}
-
-func (q *Queue) Capacity() int { return q.capacity }
-
-func (q *Queue) Length() int { return q.list.Len() }
-
-func (q *Queue) Front() any { return q.list.Front() }
-
-func (q *Queue) Append(value any) {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-
-	if q.list.Len() >= q.capacity {
-		q.list.Remove(q.list.Front())
-	}
-	q.list.PushBack(value)
-}
-
-func (q *Queue) PopLeft() any {
-	q.mu.Lock()
-	defer q.mu.Unlock()
-
-	if q.list.Len() == 0 {
-		return nil
-	}
-
-	element := q.list.Front()
-	q.list.Remove(element)
-	return element.Value
 }
