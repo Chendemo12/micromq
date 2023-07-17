@@ -4,12 +4,12 @@ type MessageType byte
 
 const (
 	ValidMessageType        MessageType = 0
-	RegisterMessageType     MessageType = 1
-	RegisterMessageRespType MessageType = 2
-	PMessageType            MessageType = 101
-	PMessageRespType        MessageType = 102
-	CMessageType            MessageType = 103
-	CMessageRespType        MessageType = 104
+	RegisterMessageType     MessageType = 1   // c -> s
+	RegisterMessageRespType MessageType = 2   // s -> c
+	PMessageType            MessageType = 101 // c -> s
+	PMessageRespType        MessageType = 102 // s -> c
+	CMessageType            MessageType = 103 // s -> c
+	CMessageRespType        MessageType = 104 // c -> s
 )
 
 type AckType string
@@ -30,4 +30,11 @@ const (
 const (
 	FrameHead = 0x3C // 0x3C (可见字符: <)
 	FrameTail = 0x0D // 0x0D (回车符)
+)
+
+type MarshalMethodType string
+
+const (
+	JsonMarshalMethod   MarshalMethodType = "JSON"
+	BinaryMarshalMethod MarshalMethodType = "BINARY"
 )

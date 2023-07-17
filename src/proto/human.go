@@ -14,6 +14,11 @@ type ConsumerMessage struct {
 	ProductTime time.Time `json:"product_time"` // 服务端收到消息时的时间戳
 }
 
+func (m *ConsumerMessage) MessageType() MessageType         { return CMessageType }
+func (m *ConsumerMessage) MarshalMethod() MarshalMethodType { return JsonMarshalMethod }
+
+func (m *ConsumerMessage) Reset() {}
+
 // ProducerMessage 生产者直接发送的数据
 // 会转换成 TransferFrame 后发送
 type ProducerMessage struct {
@@ -21,3 +26,7 @@ type ProducerMessage struct {
 	Key   string `json:"key"`
 	Value []byte `json:"value"`
 }
+
+func (m *ProducerMessage) MessageType() MessageType         { return PMessageType }
+func (m *ProducerMessage) MarshalMethod() MarshalMethodType { return JsonMarshalMethod }
+func (m *ProducerMessage) Reset()                           {}

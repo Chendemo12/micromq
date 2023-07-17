@@ -2,11 +2,17 @@
 package proto
 
 import (
-	"bytes"
 	"encoding/binary"
 	"io"
 	"time"
 )
+
+type Message interface {
+	MessageType() MessageType         // 消息类别
+	MarshalMethod() MarshalMethodType // 消息序列化方法
+	Length() int                      // 消息长度
+	Reset()                           // 重置消息体
+}
 
 // PMessage 生产者消息数据, 不允许复制
 type PMessage struct {
@@ -15,6 +21,9 @@ type PMessage struct {
 	Key    []byte
 	Value  []byte
 }
+
+func (m *PMessage) MessageType() MessageType         { return PMessageType }
+func (m *PMessage) MarshalMethod() MarshalMethodType { return BinaryMarshalMethod }
 
 func (m *PMessage) Length() int { return len(m.Topic) + len(m.Key) + len(m.Value) }
 
@@ -31,6 +40,9 @@ type CMessage struct {
 	Pm          *PMessage
 }
 
+func (m *CMessage) MessageType() MessageType         { return CMessageType }
+func (m *CMessage) MarshalMethod() MarshalMethodType { return BinaryMarshalMethod }
+
 func (m *CMessage) Length() int { return 16 + m.Pm.Length() }
 
 func (m *CMessage) Reset() {
@@ -46,6 +58,14 @@ type MessageResponse struct {
 	ReceiveTime time.Time `json:"receive_time,omitempty"`
 }
 
+func (m *MessageResponse) MessageType() MessageType {
+	if m.Offset == 0 {
+		return RegisterMessageRespType
+	}
+	return PMessageRespType
+}
+func (m *MessageResponse) MarshalMethod() MarshalMethodType { return JsonMarshalMethod }
+func (m *MessageResponse) Length() int                      { return 0 }
 func (m *MessageResponse) Reset() {
 	m.Result = false
 	m.Offset = 0
@@ -57,6 +77,12 @@ type RegisterMessage struct {
 	Ack    AckType  `json:"ack"`
 	Type   LinkType `json:"type"`
 }
+
+func (m *RegisterMessage) MessageType() MessageType         { return RegisterMessageType }
+func (m *RegisterMessage) MarshalMethod() MarshalMethodType { return JsonMarshalMethod }
+
+func (m *RegisterMessage) Length() int { return 0 }
+func (m *RegisterMessage) Reset()      {}
 
 // TransferFrame TCP传输协议帧, 可一次性传输多条消息
 type TransferFrame struct {
@@ -90,6 +116,9 @@ type container struct {
 	}
 }
 
+func (f *TransferFrame) MessageType() MessageType         { return ValidMessageType }
+func (f *TransferFrame) MarshalMethod() MarshalMethodType { return BinaryMarshalMethod }
+
 // Length 获得帧总长
 func (f *TransferFrame) Length() int { return len(f.Data) + 7 }
 
@@ -112,9 +141,35 @@ func (f *TransferFrame) Write(buf []byte) (int, error) {
 	return 0, nil
 }
 
-func (f *TransferFrame) buildFields() {
+// BuildFields 构建缺省字段
+func (f *TransferFrame) BuildFields() {
 	binary.BigEndian.AppendUint16(f.DataSize, uint16(len(f.Data)))
 	binary.BigEndian.AppendUint16(f.Checksum, CalcChecksum(f.Data))
+}
+
+// Build 编码消息帧
+func (f *TransferFrame) Build() []byte {
+	f.BuildFields()
+
+	length := f.Length()
+	content := make([]byte, length)
+	content[0] = f.Head
+	content[1] = byte(f.Type)
+	content[2] = f.DataSize[0]
+	content[3] = f.DataSize[1]
+
+	copy(content[4:], f.Data)
+
+	content[length-3] = f.Checksum[0]
+	content[length-2] = f.Checksum[1]
+	content[length-1] = f.Tail
+
+	// TODO: TransferFrame 实现 io 接口
+	return content
+}
+
+func (f *TransferFrame) Parse(reader io.Reader) error {
+	return nil
 }
 
 func (f *TransferFrame) write(writer io.Writer) (i int, err error) {
@@ -132,24 +187,12 @@ func (f *TransferFrame) write(writer io.Writer) (i int, err error) {
 	return writer.Write([]byte{FrameTail})
 }
 
-func (f *TransferFrame) WriteP(pms ...*PMessage) *bytes.Buffer {
+func (f *TransferFrame) WriteP(pms ...*PMessage) []byte {
 	f.Data = BuildPMessages(pms...)
-	f.buildFields()
-
-	content := make([]byte, f.Length())
-	stream := bytes.NewBuffer(content)
-
-	// TODO: TransferFrame 实现 io 接口
-	return stream
+	return f.Build()
 }
 
-func (f *TransferFrame) WriteC(cms ...*CMessage) *bytes.Buffer {
+func (f *TransferFrame) WriteC(cms ...*CMessage) []byte {
 	f.Data = BuildCMessages(cms...) // 必须先为 Data 赋值
-	f.buildFields()
-
-	content := make([]byte, f.Length())
-	stream := bytes.NewBuffer(content)
-
-	// TODO: TransferFrame 实现 io 接口
-	return stream
+	return f.Build()
 }
