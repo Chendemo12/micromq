@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"bytes"
 	"encoding/binary"
 	"github.com/Chendemo12/synshare-mq/src/proto"
 	"sync"
@@ -85,7 +84,7 @@ func (t *Topic) Publisher(pm *proto.PMessage) uint64 {
 }
 
 func (t *Topic) Consume() {
-	var stream *bytes.Buffer
+	var stream []byte
 
 	for msg := range t.consumerQueue {
 		frame := framePool.Get()
@@ -103,7 +102,7 @@ func (t *Topic) Consume() {
 			}
 			go func() {
 				// TODO: tcp.Remote 实现 WriteFrom(reader io.Reader) 方法
-				_, _ = cons.Conn.Write(stream.Bytes())
+				_, _ = cons.Conn.Write(stream)
 				_ = cons.Conn.Drain()
 			}()
 

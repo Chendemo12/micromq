@@ -1,8 +1,7 @@
 package sdk
 
 import (
-	"errors"
-	"github.com/Chendemo12/fastapi-tool/helper"
+	"fmt"
 	"github.com/Chendemo12/functools/python"
 	"github.com/Chendemo12/functools/tcp"
 	"github.com/Chendemo12/synshare-mq/src/proto"
@@ -12,78 +11,70 @@ import (
 type ConsumerHandler interface {
 	Topics() []string
 	Handler(record *proto.ConsumerMessage)
-	WhenConnected() // 当连接成功时,发出的信号
-	WhenClosed()    // 当连接中断时,发出的信号
+	OnConnected() // 当连接成功时,发出的信号, 此事件必须在执行完成之后才会进行后续的处理，因此需自行控制
+	OnClosed()    // 当连接中断时,发出的信号, 此事件会异步执行，与重连操作（若有）可能会同步进行
 }
 
 // Consumer 消费者
 type Consumer struct {
-	link        *Link           // 底层数据连接
-	handler     ConsumerHandler // 消息处理方法
-	isConnected bool
-	isRegister  bool // 是否注册成功
-	pool        *proto.MessagePool
+	link          *Link           // 底层数据连接
+	handler       ConsumerHandler // 消息处理方法
+	isConnected   bool
+	isRegister    bool // 是否注册成功
+	registerFrame *proto.TransferFrame
+	frameBytes    []byte
+	mu            *sync.Mutex
 }
 
+// HandlerFunc 获取注册的消息处理方法
+func (c *Consumer) HandlerFunc() ConsumerHandler { return c.handler }
+
+// OnAccepted 当TCP连接成功时就发送注册消息
 func (c *Consumer) OnAccepted(r *tcp.Remote) error {
 	c.isConnected = true
+
 	// 连接成功,发送注册消息
-	msg := &proto.RegisterMessage{
-		Topics: c.handler.Topics(),
-		Ack:    proto.NoConfirm,
-		Type:   proto.ConsumerLinkType,
-	}
-	bytes, err := helper.JsonMarshal(msg)
-	if err != nil {
-		// TODO: 重试
-		return err
-	}
-	_, err = r.Write([]byte{proto.RegisterMessageType})
-	_, err = r.Write(bytes)
+	_, err := r.Write(c.frameBytes)
 	err = r.Drain()
 	if err != nil {
-		// TODO: 重试
 		return err
 	}
 
-	c.handler.WhenConnected()
+	c.handler.OnConnected()
 	return nil
 }
 
 func (c *Consumer) OnClosed(_ *tcp.Remote) error {
 	c.isConnected = true
 	c.isRegister = false
-	go c.handler.WhenClosed()
+	go c.handler.OnClosed()
 	return nil
 }
 
 func (c *Consumer) Handler(r *tcp.Remote) error {
-	content := make([]byte, r.Len())
-	i, err := r.Copy(content)
+	frame := framePool.Get()
+	err := frame.Parse(r)
 	if err != nil {
-		return err
-	}
-	if i < 2 {
-		return errors.New("content too short")
+		return fmt.Errorf("tcp frame parse failed, %v", err)
 	}
 
-	switch content[0] {
+	switch frame.Type {
 	case proto.RegisterMessageRespType:
 		c.isRegister = true
+		framePool.Put(frame)
 	case proto.PMessageType:
-		go c.handleMessage(content[1:])
+		go c.handleMessage(frame)
 	}
 	return nil
 }
 
-func (c *Consumer) handleMessage(content []byte) {
-	msg := c.pool.Get()
-	defer c.pool.Put(msg)
+func (c *Consumer) handleMessage(frame *proto.TransferFrame) {
+	msg := mPool.GetCM()
+	defer mPool.PutCM(msg)
+	defer framePool.Put(frame)
 
-	err := helper.JsonUnmarshal(content, msg)
-	if err != nil {
-		return
-	}
+	// 转换消息格式
+	// TODO:
 
 	if c.isRegister && python.Has[string](c.handler.Topics(), msg.Topic) {
 		c.handler.Handler(msg)
@@ -104,9 +95,7 @@ func (c *Consumer) StatusOK() bool { return c.isConnected && c.isRegister }
 
 func (c *Consumer) start() error {
 	c.isRegister = false
-	if c.pool == nil {
-		c.pool = proto.NewMessagePool()
-	}
+	c.isConnected = false
 
 	return c.link.Connect()
 }
@@ -116,23 +105,36 @@ func NewAsyncConsumer(conf Config, handler ConsumerHandler) (*Consumer, error) {
 		return nil, ErrTopicEmpty
 	}
 
-	if handler.Handler == nil {
+	if handler == nil || handler.Handler == nil {
 		return nil, ErrConsumerHandlerIsNil
 	}
 
-	con := &Consumer{
-		link: &Link{
-			conf: &Config{
-				Host: conf.Host,
-				Port: conf.Port,
-				Ack:  proto.AllConfirm,
-			},
-			handler: nil,
-			mu:      &sync.Mutex{},
-		},
-		handler: handler,
-		pool:    proto.NewMessagePool(),
+	frame := &proto.TransferFrame{}
+	frame.Reset()
+	frame.Type = proto.RegisterMessageType
+
+	reporter := &proto.RegisterMessage{
+		Topics: handler.Topics(),
+		Ack:    proto.AllConfirm,
+		Type:   proto.ConsumerLinkType,
 	}
+
+	bytes, err := proto.BuildAnyMessage(reporter)
+	if err != nil {
+		return nil, err
+	}
+	frame.Data = bytes
+	frame.BuildFields()
+
+	con := &Consumer{
+		handler: handler,
+		link: &Link{
+			conf: &Config{Host: conf.Host, Port: conf.Port, Ack: proto.AllConfirm},
+			mu:   &sync.Mutex{},
+		},
+	}
+	con.registerFrame = frame
+	con.frameBytes = frame.Build()
 	con.link.handler = con // TCP 消息处理接口
 
 	return con, con.start()

@@ -3,6 +3,7 @@ package engine
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"github.com/Chendemo12/fastapi-tool/helper"
 	"github.com/Chendemo12/fastapi-tool/logger"
 	"github.com/Chendemo12/functools/tcp"
@@ -128,7 +129,7 @@ func (e *Engine) HandleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remote
 	msg := &proto.RegisterMessage{}
 	err := helper.JsonUnmarshal(frame.Data, msg)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("register message parse failed, %v", err)
 	}
 
 	switch msg.Type {
