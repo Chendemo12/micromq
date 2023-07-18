@@ -43,7 +43,7 @@ func NewCMPool() *CMPool {
 	p := &CMPool{pool: &sync.Pool{}}
 
 	p.pool.New = func() any {
-		cm := CMessage{}
+		cm := CMessage{Pm: &PMessage{}}
 		cm.Reset()
 		return cm
 	}

@@ -53,7 +53,7 @@ func (c *Consumer) OnClosed(_ *tcp.Remote) error {
 
 func (c *Consumer) Handler(r *tcp.Remote) error {
 	frame := framePool.Get()
-	err := frame.Parse(r)
+	err := frame.ParseFrom(r)
 	if err != nil {
 		return fmt.Errorf("tcp frame parse failed, %v", err)
 	}
@@ -62,7 +62,7 @@ func (c *Consumer) Handler(r *tcp.Remote) error {
 	case proto.RegisterMessageRespType:
 		c.isRegister = true
 		framePool.Put(frame)
-	case proto.PMessageType:
+	case proto.CMessageType:
 		go c.handleMessage(frame)
 	}
 	return nil
@@ -74,7 +74,10 @@ func (c *Consumer) handleMessage(frame *proto.TransferFrame) {
 	defer framePool.Put(frame)
 
 	// 转换消息格式
-	// TODO:
+	if FrameToCMessage(frame, msg) != nil {
+		// 后期应增加日志记录
+		return
+	}
 
 	if c.isRegister && python.Has[string](c.handler.Topics(), msg.Topic) {
 		c.handler.Handler(msg)

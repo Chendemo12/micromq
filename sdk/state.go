@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"bytes"
 	"errors"
 	"github.com/Chendemo12/synshare-mq/src/proto"
 	"sync"
@@ -49,4 +50,15 @@ func (m *MessagePool) PutPM(v *proto.ProducerMessage) {
 
 func (m *MessagePool) PutCM(v *proto.ConsumerMessage) {
 	m.cpool.Put(v)
+}
+
+func FrameToCMessage(frame *proto.TransferFrame, cm *proto.ConsumerMessage) error {
+	//if frame.Type != proto.CMessageType {
+	//	return errors.New("frame is not a consumer message")
+	//}
+
+	reader := bytes.NewReader(frame.Data)
+	i, err := reader.Read()
+
+	return nil
 }
