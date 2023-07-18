@@ -2,7 +2,6 @@
 package proto
 
 import (
-	"errors"
 	"fmt"
 	"io"
 	"time"
@@ -43,12 +42,11 @@ func (m *PMessage) ParseFrom(reader io.Reader) error {
 	//		ValueLength uint16
 	//		Value       []byte
 
-	// TODO: pool
-	ob := make([]byte, 1)
-	tb := make([]byte, 2)
+	bc := bcPool.Get()
+	defer bcPool.Put(bc)
 
 	// topicLength , topic
-	i, err := reader.Read(ob)
+	i, err := reader.Read(bc.oneByte)
 	if err != nil {
 		return fmt.Errorf("topic did not read: %v", err)
 	}
@@ -59,7 +57,7 @@ func (m *PMessage) ParseFrom(reader io.Reader) error {
 	}
 
 	// keyLength , key
-	i, err = reader.Read(ob)
+	i, err = reader.Read(bc.oneByte)
 	if err != nil {
 		return fmt.Errorf("key did not read: %v", err)
 	}
@@ -70,7 +68,7 @@ func (m *PMessage) ParseFrom(reader io.Reader) error {
 	}
 
 	// valueLength , value
-	i, err = reader.Read(tb)
+	i, err = reader.Read(bc.twoByte)
 	if err != nil {
 		return fmt.Errorf("value did not read: %v", err)
 	}
@@ -137,23 +135,25 @@ type MessageResponse struct {
 	ReceiveTime time.Time `json:"receive_time,omitempty"`
 }
 
+// MessageType 依据偏移量字段判断消息类型
 func (m *MessageResponse) MessageType() MessageType {
 	if m.Offset == 0 {
 		return RegisterMessageRespType
 	}
-	return PMessageRespType
+	return MessageRespType
 }
+
 func (m *MessageResponse) MarshalMethod() MarshalMethodType { return JsonMarshalMethod }
-func (m *MessageResponse) Length() int                      { return 0 }
+
+func (m *MessageResponse) Length() int { return 0 }
 
 func (m *MessageResponse) Reset() {
 	m.Result = false
 	m.Offset = 0
 }
 
-func (m *MessageResponse) ParseFrom(reader io.Reader) error {
-	// TODO:
-	
+func (m *MessageResponse) ParseFrom(_ io.Reader) error {
+	return ErrParseFromNotImplemented
 }
 
 // RegisterMessage 消息注册,适用于生产者和消费者
@@ -169,14 +169,18 @@ func (m *RegisterMessage) MarshalMethod() MarshalMethodType { return JsonMarshal
 func (m *RegisterMessage) Length() int { return 0 }
 func (m *RegisterMessage) Reset()      {}
 
-func (m *RegisterMessage) ParseFrom(reader io.Reader) error {}
+func (m *RegisterMessage) ParseFrom(reader io.Reader) error {
+	return ErrParseFromNotImplemented
+}
 
 type ValidMessage struct{}
 
 func (m ValidMessage) MessageType() MessageType         { return ValidMessageType }
 func (m ValidMessage) MarshalMethod() MarshalMethodType { return BinaryMarshalMethod }
-func (m ValidMessage) Length() int                      { return 0 }
-func (m ValidMessage) Reset()                           {}
-func (m ValidMessage) ParseFrom(reader io.Reader) error {
-	return errors.New("not implemented")
+
+func (m ValidMessage) Length() int { return 0 }
+func (m ValidMessage) Reset()      {}
+
+func (m ValidMessage) ParseFrom(_ io.Reader) error {
+	return ErrMethodNotImplemented
 }

@@ -1,15 +1,18 @@
 package proto
 
+import "errors"
+
 type MessageType byte
+
+const FrameMinLength int = 7
 
 const (
 	ValidMessageType        MessageType = 0
-	RegisterMessageType     MessageType = 1 // c -> s
-	RegisterMessageRespType MessageType = 2 // s -> c
-	MessageRespType         MessageType = 100
-	PMessageType            MessageType = 101 // c -> s
-	PMessageRespType        MessageType = 102 // s -> c
-	CMessageType            MessageType = 103 // s -> c
+	RegisterMessageType     MessageType = 1   // 客户端消费者/生产者注册消息类别 c -> s
+	RegisterMessageRespType MessageType = 2   // s -> c
+	MessageRespType         MessageType = 100 // 生产者消息响应 s -> c
+	PMessageType            MessageType = 101 // 生产者消息类别 c -> s
+	CMessageType            MessageType = 102 // 消费者消息类别s -> c
 )
 
 type AckType string
@@ -37,4 +40,9 @@ type MarshalMethodType string
 const (
 	JsonMarshalMethod   MarshalMethodType = "JSON"
 	BinaryMarshalMethod MarshalMethodType = "BINARY"
+)
+
+var (
+	ErrMethodNotImplemented    = errors.New("method not implemented")
+	ErrParseFromNotImplemented = errors.New("json marshal does support ParseFrom method")
 )

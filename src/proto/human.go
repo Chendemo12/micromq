@@ -4,6 +4,12 @@ import (
 	"time"
 )
 
+// HumanMessage 直接返回给调用者的消息定义
+type HumanMessage interface {
+	MessageType() MessageType         // 消息类别
+	MarshalMethod() MarshalMethodType // 消息序列化方法
+}
+
 // ConsumerMessage 直接投递给消费者的单条数据消息
 // 需要从 TransferFrame 中转换
 type ConsumerMessage struct {
@@ -17,8 +23,6 @@ type ConsumerMessage struct {
 func (m *ConsumerMessage) MessageType() MessageType         { return CMessageType }
 func (m *ConsumerMessage) MarshalMethod() MarshalMethodType { return JsonMarshalMethod }
 
-func (m *ConsumerMessage) Reset() {}
-
 // ProducerMessage 生产者直接发送的数据
 // 会转换成 TransferFrame 后发送
 type ProducerMessage struct {
@@ -29,4 +33,3 @@ type ProducerMessage struct {
 
 func (m *ProducerMessage) MessageType() MessageType         { return PMessageType }
 func (m *ProducerMessage) MarshalMethod() MarshalMethodType { return JsonMarshalMethod }
-func (m *ProducerMessage) Reset()                           {}

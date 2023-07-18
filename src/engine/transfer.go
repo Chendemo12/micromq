@@ -3,9 +3,9 @@ package engine
 import (
 	"errors"
 	"fmt"
-	"github.com/Chendemo12/fastapi-tool/helper"
 	"github.com/Chendemo12/fastapi-tool/logger"
 	"github.com/Chendemo12/functools/tcp"
+	"github.com/Chendemo12/synshare-mq/src/proto"
 )
 
 var ErrMessageNotFull = errors.New("message is not full")
@@ -42,6 +42,7 @@ func (t *Transfer) OnAccepted(r *tcp.Remote) error {
 }
 
 func (t *Transfer) OnClosed(r *tcp.Remote) error {
+	// 删除此连接的消费者记录或生产者记录
 	for _, cons := range t.mq.consumers {
 		if cons.Addr == r.Addr() {
 			t.logger.Info(r.Addr(), "consumer close connection.")
@@ -62,21 +63,12 @@ func (t *Transfer) OnClosed(r *tcp.Remote) error {
 }
 
 func (t *Transfer) Handler(r *tcp.Remote) error {
-	if r.Len() < 2 {
+	if r.Len() < proto.FrameMinLength {
 		return ErrMessageNotFull
 	}
 
-	// 读取并拷贝字节流
-	content := make([]byte, r.Len())
-	_, err := r.Read(content)
-	if err != nil {
-		return fmt.Errorf("server read frame failed: %v", err)
-	}
-
-	// TODO: 计算 checksum是否正确
-
 	frame := framePool.Get()
-	err = helper.JsonUnmarshal(content, frame)
+	err := frame.ParseFrom(r)
 	if err != nil {
 		return fmt.Errorf("server parse frame failed: %v", err)
 	}

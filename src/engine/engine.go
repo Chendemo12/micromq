@@ -105,7 +105,7 @@ func (e *Engine) Distribute(frame *proto.TransferFrame, r *tcp.Remote) {
 		respType[0] = byte(proto.RegisterMessageRespType)
 	case proto.PMessageType: // 生产消息
 		resp, err = e.HandleProductionMessage(frame, r)
-		respType[0] = byte(proto.PMessageRespType)
+		respType[0] = byte(proto.MessageRespType)
 	}
 
 	// 回写返回值
@@ -126,17 +126,17 @@ func (e *Engine) Distribute(frame *proto.TransferFrame, r *tcp.Remote) {
 
 // HandleRegisterMessage 处理注册消息
 func (e *Engine) HandleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remote) ([]byte, error) {
-	msg := &proto.RegisterMessage{}
-	err := helper.JsonUnmarshal(frame.Data, msg)
-	if err != nil {
+	msg, err := frame.ParseTo()
+	rgm, ok := msg.(*proto.RegisterMessage)
+	if err != nil || !ok {
 		return nil, fmt.Errorf("register message parse failed, %v", err)
 	}
 
-	switch msg.Type {
+	switch rgm.Type {
 
 	case proto.ProducerLinkType: // 注册生产者
 		prod := &Producer{
-			Conf: &ProducerConfig{Ack: msg.Ack},
+			Conf: &ProducerConfig{Ack: rgm.Ack},
 			Addr: r.Addr(),
 			Conn: r,
 		}
@@ -144,14 +144,14 @@ func (e *Engine) HandleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remote
 
 	case proto.ConsumerLinkType: // 注册消费者
 		cons := &Consumer{
-			Conf: &ConsumerConfig{Topics: msg.Topics, Ack: msg.Ack},
+			Conf: &ConsumerConfig{Topics: rgm.Topics, Ack: rgm.Ack},
 			Addr: r.Addr(),
 			Conn: r,
 		}
 
 		e.consumers[r.Index()] = cons
 
-		for _, name := range msg.Topics {
+		for _, name := range rgm.Topics {
 			e.GetTopic([]byte(name)).AddConsumer(cons)
 		}
 	}
@@ -162,7 +162,6 @@ func (e *Engine) HandleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remote
 func (e *Engine) HandleProductionMessage(frame *proto.TransferFrame, r *tcp.Remote) ([]byte, error) {
 	pms := make([]*proto.PMessage, 0)
 	// 解析消息帧
-	// TODO:
 	proto.ParsePMFrame(&pms, frame.Data)
 	if len(pms) < 1 {
 		return nil, errors.New("message not found in frame")

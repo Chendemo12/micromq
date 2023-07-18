@@ -1,7 +1,9 @@
 package proto
 
 import (
+	"bytes"
 	"encoding/binary"
+	"fmt"
 	"io"
 )
 
@@ -14,6 +16,31 @@ type TransferFrame struct {
 	Data     []byte      // 若干个消息
 	Checksum []byte      // Checksum 经典校验和算法,2个字节, Data 的校验和 TODO: 修改为[Type, Data] 的校验和
 	Tail     byte        // 恒为 FrameTail
+}
+
+// ParseFrom 从流中解析数据帧
+func (f *TransferFrame) ParseFrom(reader io.Reader) error {
+	bc := bcPool.Get()
+	defer bcPool.Put(bc)
+
+	// 此处一定 > 7个字节
+	bc.i, bc.err = reader.Read(bc.oneByte)
+	bc.i, bc.err = reader.Read(bc.oneByte)
+	f.Type = MessageType(bc.oneByte[0])
+
+	bc.i, bc.err = reader.Read(f.DataSize)
+	f.Data = make([]byte, f.DataLength())
+
+	bc.i, bc.err = reader.Read(f.Data)
+	if bc.err != nil {
+		return fmt.Errorf("frame date read failed: %v", bc.err)
+	}
+	bc.i, bc.err = reader.Read(f.Checksum)
+	if bc.err != nil {
+		return fmt.Errorf("checksum date read failed: %v", bc.err)
+	}
+
+	return nil
 }
 
 // TransferFrame.Data 字节序列说明, 无作用
@@ -43,7 +70,6 @@ func (f *TransferFrame) MarshalMethod() MarshalMethodType { return BinaryMarshal
 
 // Length 获得帧总长
 func (f *TransferFrame) Length() int { return len(f.Data) + 7 }
-
 func (f *TransferFrame) Reset() {
 	f.Head = FrameHead
 	f.Type = ValidMessageType
@@ -53,12 +79,13 @@ func (f *TransferFrame) Reset() {
 	f.Tail = FrameTail
 }
 
-func (f *TransferFrame) ParseFrom(reader io.Reader) error {
-	// TODO: 从流中解析消息帧
-	return nil
+// DataLength 获得消息的总长度, DataSize 由标识
+func (f *TransferFrame) DataLength() int {
+	return int(binary.BigEndian.Uint16(f.DataSize))
 }
 
-func (f *TransferFrame) ParseTo(reader io.Reader) (Message, error) {
+// ParseTo 将帧消息解析成某一个具体的协议消息
+func (f *TransferFrame) ParseTo() (Message, error) {
 	// 将Data解析为具体的消息，返回指针
 	var msg Message
 	switch f.Type {
@@ -74,7 +101,7 @@ func (f *TransferFrame) ParseTo(reader io.Reader) (Message, error) {
 		msg = &ValidMessage{}
 	}
 
-	err := msg.ParseFrom(reader)
+	err := msg.ParseFrom(bytes.NewBuffer(f.Data))
 	if err != nil {
 		return nil, err
 	}
@@ -98,6 +125,13 @@ func (f *TransferFrame) BuildFields() {
 	binary.BigEndian.AppendUint16(f.Checksum, CalcChecksum(f.Data))
 }
 
+// BuildWith 补充字段,编码消息帧
+func (f *TransferFrame) BuildWith(typ MessageType, data []byte) []byte {
+	f.Type = typ
+	f.Data = data
+	return f.Build()
+}
+
 // Build 编码消息帧
 func (f *TransferFrame) Build() []byte {
 	f.BuildFields()
@@ -115,7 +149,6 @@ func (f *TransferFrame) Build() []byte {
 	content[length-2] = f.Checksum[1]
 	content[length-1] = f.Tail
 
-	// TODO: TransferFrame 实现 io 接口
 	return content
 }
 

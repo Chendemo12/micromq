@@ -13,58 +13,6 @@ type NoCopy struct{}
 func (*NoCopy) Lock()   {}
 func (*NoCopy) Unlock() {}
 
-func NewFramePool() *FramePool {
-	p := &FramePool{pool: &sync.Pool{}}
-
-	p.pool.New = func() any {
-		v := &TransferFrame{}
-		v.Reset()
-		return v
-	}
-
-	return p
-}
-
-type FramePool struct {
-	pool *sync.Pool
-}
-
-func (p *FramePool) Get() *TransferFrame {
-	v := p.pool.Get().(*TransferFrame)
-	return v
-}
-
-func (p *FramePool) Put(v *TransferFrame) {
-	v.Reset()
-	p.pool.Put(v)
-}
-
-func NewCMPool() *CMPool {
-	p := &CMPool{pool: &sync.Pool{}}
-
-	p.pool.New = func() any {
-		cm := CMessage{Pm: &PMessage{}}
-		cm.Reset()
-		return cm
-	}
-
-	return p
-}
-
-type CMPool struct {
-	pool *sync.Pool
-}
-
-func (p *CMPool) Get() *CMessage {
-	v := p.pool.Get()
-	return v.(*CMessage)
-}
-
-func (p *CMPool) Put(v *CMessage) {
-	v.Reset()
-	p.pool.Put(v)
-}
-
 // BuildPMessages 构造生产者消息序列
 // TODO: 改为 io.Writer
 func BuildPMessages(pms ...*PMessage) (slice []byte) {
