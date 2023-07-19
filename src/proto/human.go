@@ -1,6 +1,7 @@
 package proto
 
 import (
+	"encoding/binary"
 	"time"
 )
 
@@ -22,6 +23,14 @@ type ConsumerMessage struct {
 
 func (m *ConsumerMessage) MessageType() MessageType         { return CMessageType }
 func (m *ConsumerMessage) MarshalMethod() MarshalMethodType { return JsonMarshalMethod }
+
+func (m *ConsumerMessage) ParseFromCMessage(cm *CMessage) {
+	m.Topic = string(cm.Pm.Topic)
+	m.Key = string(cm.Pm.Key)
+	m.Value = cm.Pm.Value
+	m.Offset = binary.BigEndian.Uint64(cm.Offset)
+	m.ProductTime = time.Unix(int64(binary.BigEndian.Uint64(cm.ProductTime)), 0)
+}
 
 func (m *ConsumerMessage) Reset() {
 	m.Topic = ""

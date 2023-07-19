@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"bytes"
 	"fmt"
 	"github.com/Chendemo12/functools/python"
 	"github.com/Chendemo12/functools/tcp"
@@ -67,22 +68,50 @@ func (c *Consumer) Handler(r *tcp.Remote) error {
 	return nil
 }
 
+// 将消息帧转换为消费者消息，中间经过了一个协议转换
+func (c *Consumer) toCMessage(frame *proto.TransferFrame) ([]*proto.ConsumerMessage, error) {
+
+	var err error
+	cms := make([]*proto.ConsumerMessage, 0)
+	reader := bytes.NewReader(frame.Data)
+
+	for err == nil && reader.Len() > 0 {
+		ecm := emPool.GetCM()
+		err = ecm.ParseFrom(reader)
+		if err == nil {
+			cm := mPool.GetCM()
+			cm.ParseFromCMessage(ecm)
+
+			cms = append(cms, cm)
+		}
+
+		emPool.PutCM(ecm)
+	}
+
+	return cms, err
+}
+
 func (c *Consumer) handleMessage(frame *proto.TransferFrame) {
-	msg := mPool.GetCM()
-	defer mPool.PutCM(msg)
 	defer framePool.Put(frame)
 
 	// 转换消息格式
-	if FrameToCMessage(frame, msg) != nil {
+	cms, err := c.toCMessage(frame)
+	if err != nil {
 		// 后期应增加日志记录
 		return
 	}
 
-	if c.isRegister && python.Has[string](c.handler.Topics(), msg.Topic) {
-		c.handler.Handler(msg)
-	} else {
-		// 出现脏数据
-		return
+	for _, cm := range cms {
+		msg := cm
+		go func() {
+			if c.isRegister && python.Has[string](c.handler.Topics(), msg.Topic) {
+				c.handler.Handler(msg)
+			} else {
+				// 出现脏数据
+				return
+			}
+			defer mPool.PutCM(msg)
+		}()
 	}
 }
 

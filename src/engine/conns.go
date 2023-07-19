@@ -1,8 +1,10 @@
 package engine
 
 import (
+	"errors"
 	"github.com/Chendemo12/functools/tcp"
 	"github.com/Chendemo12/synshare-mq/src/proto"
+	"time"
 )
 
 type ConsumerConfig struct {
@@ -12,6 +14,8 @@ type ConsumerConfig struct {
 
 type ProducerConfig struct {
 	Ack proto.AckType `json:"ack"`
+	// 定时器间隔，单位ms，仅生产者有效，生产者需要按照此间隔发送帧消息
+	TimerInterval time.Duration `json:"timer_duration"`
 }
 
 type Consumer struct {
@@ -32,3 +36,8 @@ type Producer struct {
 	Addr string          `json:"addr"`
 	Conn *tcp.Remote     `json:"-"`
 }
+
+var (
+	ErrMessageNotFull      = errors.New("message is not full")
+	ErrProducerNotRegister = errors.New("producer not register")
+)

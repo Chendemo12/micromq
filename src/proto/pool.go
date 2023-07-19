@@ -41,11 +41,16 @@ func (p *FramePool) Put(v *TransferFrame) {
 	p.pool.Put(v)
 }
 
-func NewCMPool() *CMPool {
-	p := &CMPool{pool: &sync.Pool{}}
+func NewCPMPool() *CPMPool {
+	p := &CPMPool{cpool: &sync.Pool{}, ppool: &sync.Pool{}}
 
-	p.pool.New = func() any {
-		cm := CMessage{Pm: &PMessage{}}
+	p.cpool.New = func() any {
+		cm := &CMessage{Pm: &PMessage{}}
+		cm.Reset()
+		return cm
+	}
+	p.ppool.New = func() any {
+		cm := &PMessage{}
 		cm.Reset()
 		return cm
 	}
@@ -53,18 +58,27 @@ func NewCMPool() *CMPool {
 	return p
 }
 
-type CMPool struct {
-	pool *sync.Pool
+type CPMPool struct {
+	cpool *sync.Pool
+	ppool *sync.Pool
 }
 
-func (p *CMPool) Get() *CMessage {
-	v := p.pool.Get()
-	return v.(*CMessage)
+func (p *CPMPool) GetCM() *CMessage {
+	return p.cpool.Get().(*CMessage)
 }
 
-func (p *CMPool) Put(v *CMessage) {
+func (p *CPMPool) GetPM() *PMessage {
+	return p.ppool.Get().(*PMessage)
+}
+
+func (p *CPMPool) PutCM(v *CMessage) {
 	v.Reset()
-	p.pool.Put(v)
+	p.cpool.Put(v)
+}
+
+func (p *CPMPool) PutPM(v *PMessage) {
+	v.Reset()
+	p.ppool.Put(v)
 }
 
 type bytesCache struct {

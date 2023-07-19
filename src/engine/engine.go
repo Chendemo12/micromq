@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
-	"github.com/Chendemo12/fastapi-tool/helper"
 	"github.com/Chendemo12/fastapi-tool/logger"
 	"github.com/Chendemo12/functools/tcp"
 	"github.com/Chendemo12/synshare-mq/src/proto"
@@ -39,7 +38,7 @@ func (e *Engine) RangeTopic(fn func(topic *Topic) bool) {
 
 func (e *Engine) AddTopic(name []byte) *Topic {
 	topic := NewTopic(name, e.conf.BufferSize)
-	e.topics.Store(name, topic)
+	e.topics.Store(string(name), topic)
 	return topic
 }
 
@@ -47,7 +46,7 @@ func (e *Engine) AddTopic(name []byte) *Topic {
 func (e *Engine) GetTopic(name []byte) *Topic {
 	var topic *Topic
 
-	v, ok := e.topics.Load(name)
+	v, ok := e.topics.Load(string(name))
 	if !ok {
 		topic = e.AddTopic(name)
 	} else {
@@ -86,38 +85,54 @@ func (e *Engine) RemoveConsumer(addr string) {
 	}
 }
 
+func (e *Engine) IsProducerRegister(addr string) bool {
+	for _, p := range e.producers {
+		if p.Addr == addr {
+			return true
+		}
+	}
+	return false
+}
+
 // Publisher 发布消息,并返回此消息在当前topic中的偏移量
 func (e *Engine) Publisher(msg *proto.PMessage) uint64 {
 	return e.GetTopic(msg.Topic).Publisher(msg)
 }
 
+// ProducerInterval 允许生产者发送数据间隔
+func (e *Engine) ProducerInterval() time.Duration {
+	return time.Millisecond * 500
+}
+
 // Distribute 分发消息
+// TODO: 增加日志记录
 func (e *Engine) Distribute(frame *proto.TransferFrame, r *tcp.Remote) {
 	defer framePool.Put(frame)
 
-	var resp []byte
 	var err error
-	respType := make([]byte, 1)
+	var needResp bool
 
 	switch frame.Type {
-	case proto.RegisterMessageType: // 注册消费者
-		resp, err = e.HandleRegisterMessage(frame, r)
-		respType[0] = byte(proto.RegisterMessageRespType)
 	case proto.PMessageType: // 生产消息
-		resp, err = e.HandleProductionMessage(frame, r)
-		respType[0] = byte(proto.MessageRespType)
+		// 内部会就地修改 frame
+		needResp, err = e.HandleProductionMessage(frame, r)
+
+	case proto.RegisterMessageType: // 注册消费者
+		// 内部会就地修改 frame
+		needResp, err = e.HandleRegisterMessage(frame, r)
 	}
 
-	// 回写返回值
-	if err != nil || len(resp) == 0 {
+	// 错误，或不需要回写返回值
+	if err != nil || !needResp {
 		return
 	}
-	// 写入消息类别
-	_, err = r.Write(respType)
-	_, err = r.Write(resp)
+
+	// 重新构建并写入消息帧
+	_bytes, err := frame.Build()
 	if err != nil {
 		return
 	}
+	_, err = r.Write(_bytes)
 	err = r.Drain()
 	if err != nil {
 		return
@@ -125,18 +140,18 @@ func (e *Engine) Distribute(frame *proto.TransferFrame, r *tcp.Remote) {
 }
 
 // HandleRegisterMessage 处理注册消息
-func (e *Engine) HandleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remote) ([]byte, error) {
+func (e *Engine) HandleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remote) (bool, error) {
 	msg, err := frame.ParseTo()
 	rgm, ok := msg.(*proto.RegisterMessage)
 	if err != nil || !ok {
-		return nil, fmt.Errorf("register message parse failed, %v", err)
+		return false, fmt.Errorf("register message parse failed, %v", err)
 	}
 
 	switch rgm.Type {
 
 	case proto.ProducerLinkType: // 注册生产者
 		prod := &Producer{
-			Conf: &ProducerConfig{Ack: rgm.Ack},
+			Conf: &ProducerConfig{Ack: rgm.Ack, TimerInterval: e.ProducerInterval()},
 			Addr: r.Addr(),
 			Conn: r,
 		}
@@ -156,35 +171,71 @@ func (e *Engine) HandleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remote
 		}
 	}
 
-	return nil, nil
+	// 无论如何都需要构建返回值
+	resp := &proto.MessageResponse{
+		Result:        true,
+		Offset:        0,
+		ReceiveTime:   time.Now(),
+		TimerInterval: e.ProducerInterval(),
+	}
+	frame.Type = proto.RegisterMessageRespType
+	frame.Data, err = resp.Build()
+	if err != nil {
+		return false, fmt.Errorf("register response message build failed: %v", err)
+	}
+
+	return true, nil
 }
 
-func (e *Engine) HandleProductionMessage(frame *proto.TransferFrame, r *tcp.Remote) ([]byte, error) {
+// HandleProductionMessage 处理生产者消息帧，此处需要判断生产者是否已注册
+func (e *Engine) HandleProductionMessage(frame *proto.TransferFrame, r *tcp.Remote) (bool, error) {
+	if !e.IsProducerRegister(r.Addr()) {
+		return false, ErrProducerNotRegister
+	}
+
+	// 会存在多个消息封装为一个帧
 	pms := make([]*proto.PMessage, 0)
-	// 解析消息帧
-	proto.ParsePMFrame(&pms, frame.Data)
+	stream := bytes.NewReader(frame.Data)
+
+	// 循环解析生产者消息
+	var err error
+	for err == nil && stream.Len() > 0 {
+		pm := mp.GetPM()
+		err = pm.ParseFrom(stream)
+		if err == nil {
+			pms = append(pms, pm)
+		}
+	}
+
 	if len(pms) < 1 {
-		return nil, errors.New("message not found in frame")
+		return false, errors.New("message not found in frame")
 	}
 
 	// 若是批量发送数据,则取最后一条消息的偏移量
 	var offset uint64 = 0
 	for _, pm := range pms {
-		offset = e.GetTopic(pm.Topic).Publisher(pm)
+		offset = e.Publisher(pm)
 	}
 
 	consumer := e.consumers[r.Index()]
 	if consumer != nil && consumer.NeedConfirm() {
 		// 需要返回确认消息给客户端
-		resp := &proto.MessageResponse{}
-		resp.ReceiveTime = time.Now()
-		resp.Offset = offset
-		resp.Result = true
-
-		return helper.JsonMarshal(resp)
+		resp := &proto.MessageResponse{
+			Result:      true,
+			Offset:      offset,
+			ReceiveTime: time.Now(),
+		}
+		_bytes, err2 := resp.Build()
+		if err2 != nil {
+			return false, fmt.Errorf("response build failed: %v", err2)
+		}
+		frame.Type = proto.MessageRespType
+		frame.Data = _bytes
+		return true, nil
+	} else {
+		// 不需要返回值
+		return false, nil
 	}
-
-	return nil, nil
 }
 
 func (e *Engine) Run() {

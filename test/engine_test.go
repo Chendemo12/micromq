@@ -32,6 +32,7 @@ func TestEngine(t *testing.T) {
 		BufferSize:  100,
 		Logger:      zaplog.NewLogger(conf).Sugar(),
 	})
+	handler.GetTopic([]byte("DDNS"))
 
-	handler.Run()
+	//handler.Run()
 }

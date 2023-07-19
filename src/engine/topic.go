@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-var cmp = proto.NewCMPool()
+var mp = proto.NewCPMPool()
 var framePool = proto.NewFramePool()
 
 type Event struct {
@@ -70,7 +70,7 @@ func (t *Topic) RemoveConsumer(addr string) {
 // Publisher 发布消费者消息,此处会将来自生产者的消息转换成消费者消息
 func (t *Topic) Publisher(pm *proto.PMessage) uint64 {
 	offset := t.makeOffset()
-	cm := cmp.Get()
+	cm := mp.GetCM()
 
 	binary.BigEndian.PutUint64(cm.Offset, offset)
 	binary.BigEndian.PutUint64(cm.ProductTime, uint64(time.Now().Unix()))
@@ -83,15 +83,20 @@ func (t *Topic) Publisher(pm *proto.PMessage) uint64 {
 	return offset
 }
 
+// Consume 向消费者发送消息帧
+// TODO: 实现多个消息压缩为帧
 func (t *Topic) Consume() {
 	var stream []byte
 	var err error
 
 	for msg := range t.consumerQueue {
 		frame := framePool.Get()
-		frame.Type = proto.CMessageType
+		stream, err = frame.BuildFrom(msg)
 
-		stream, err = frame.WriteC(msg)
+		framePool.Put(frame)
+		mp.PutCM(msg)
+		mp.PutPM(msg.Pm)
+
 		if err != nil {
 			continue
 		}
@@ -106,11 +111,8 @@ func (t *Topic) Consume() {
 				_, _ = cons.Conn.Write(stream)
 				_ = cons.Conn.Drain()
 			}()
-
 			return true
 		})
-
-		framePool.Put(frame)
 	}
 }
 

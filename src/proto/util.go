@@ -11,7 +11,7 @@ type NoCopy struct{}
 func (*NoCopy) Lock()   {}
 func (*NoCopy) Unlock() {}
 
-// BuildPMessages 构造生产者消息序列
+// Deprecated: BuildPMessages 构造生产者消息序列
 // TODO: 改为 io.Writer
 func BuildPMessages(pms ...*PMessage) (slice []byte) {
 	//		TopicLength byte
@@ -41,7 +41,7 @@ func BuildPMessages(pms ...*PMessage) (slice []byte) {
 	return slice
 }
 
-// BuildCMessages 构造消产者消息序列
+// Deprecated:BuildCMessages 构造消产者消息序列
 // TODO: 改为 io.Writer
 func BuildCMessages(cms ...*CMessage) (slice []byte) {
 	//		TopicLength byte
@@ -154,18 +154,6 @@ func (q *Queue) PopLeft() any {
 	element := q.list.Front()
 	q.list.Remove(element)
 	return element.Value
-}
-
-// ParsePMFrame 循环解析生产者消息
-func ParsePMFrame(pms *[]*PMessage, content []byte) {
-	// TODO:
-
-}
-
-// ParseCMFrame 循环解析消费者消息
-func ParseCMFrame(cms *[]*CMessage, content []byte) {
-	// TODO:
-
 }
 
 func NewCRegisterMessage(topics ...string) *RegisterMessage {
