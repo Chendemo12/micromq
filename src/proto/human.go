@@ -2,6 +2,7 @@ package proto
 
 import (
 	"encoding/binary"
+	"github.com/Chendemo12/fastapi-tool/helper"
 	"time"
 )
 
@@ -21,8 +22,11 @@ type ConsumerMessage struct {
 	ProductTime time.Time `json:"product_time"` // 服务端收到消息时的时间戳
 }
 
-func (m *ConsumerMessage) MessageType() MessageType         { return CMessageType }
-func (m *ConsumerMessage) MarshalMethod() MarshalMethodType { return JsonMarshalMethod }
+func (m *ConsumerMessage) MessageType() MessageType { return CMessageType }
+
+func (m *ConsumerMessage) MarshalMethod() MarshalMethodType {
+	return JsonMarshalMethod
+}
 
 func (m *ConsumerMessage) ParseFromCMessage(cm *CMessage) {
 	m.Topic = string(cm.Pm.Topic)
@@ -39,6 +43,11 @@ func (m *ConsumerMessage) Reset() {
 	m.Offset = 0
 }
 
+// ShouldBindJSON 将数据反序列化到一个JSON模型上
+func (m *ConsumerMessage) ShouldBindJSON(v any) error {
+	return helper.JsonUnmarshal(m.Value, v)
+}
+
 // ProducerMessage 生产者直接发送的数据
 // 会转换成 TransferFrame 后发送
 type ProducerMessage struct {
@@ -47,11 +56,24 @@ type ProducerMessage struct {
 	Value []byte `json:"value"`
 }
 
-func (m *ProducerMessage) MessageType() MessageType         { return PMessageType }
-func (m *ProducerMessage) MarshalMethod() MarshalMethodType { return JsonMarshalMethod }
+func (m *ProducerMessage) MessageType() MessageType { return PMessageType }
+
+func (m *ProducerMessage) MarshalMethod() MarshalMethodType {
+	return JsonMarshalMethod
+}
 
 func (m *ProducerMessage) Reset() {
 	m.Topic = ""
 	m.Key = ""
 	m.Value = nil
+}
+
+// ShouldParseJSON 从JSON模型获取序列化数据
+func (m *ProducerMessage) ShouldParseJSON(v any) error {
+	_bytes, err := helper.JsonMarshal(v)
+	if err != nil {
+		return err
+	}
+	m.Value = _bytes
+	return nil
 }

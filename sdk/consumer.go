@@ -3,6 +3,7 @@ package sdk
 import (
 	"bytes"
 	"fmt"
+	"github.com/Chendemo12/fastapi-tool/helper"
 	"github.com/Chendemo12/functools/python"
 	"github.com/Chendemo12/functools/tcp"
 	"github.com/Chendemo12/synshare-mq/src/proto"
@@ -129,6 +130,17 @@ func (c *Consumer) start() error {
 	c.isConnected = false
 
 	return c.link.Connect()
+}
+
+// ==================================== methods shortcut ====================================
+
+// JSONUnmarshal 反序列化方法
+func (c *Consumer) JSONUnmarshal(data []byte, v any) error {
+	return helper.JsonUnmarshal(data, v)
+}
+
+func (c *Consumer) JSONMarshal(v any) ([]byte, error) {
+	return helper.JsonMarshal(v)
 }
 
 func NewAsyncConsumer(conf Config, handler ConsumerHandler) (*Consumer, error) {

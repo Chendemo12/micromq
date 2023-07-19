@@ -100,6 +100,17 @@ func (p *Producer) start() error {
 	return nil
 }
 
+// ==================================== methods shortcut ====================================
+
+// JSONMarshal 序列化方法
+func (p *Producer) JSONMarshal(v any) ([]byte, error) {
+	return helper.JsonMarshal(v)
+}
+
+func (p *Producer) JSONUnmarshal(data []byte, v any) error {
+	return helper.JsonUnmarshal(data, v)
+}
+
 // NewAsyncProducer 创建异步生产者,无需再手动启动
 func NewAsyncProducer(conf Config) (*Producer, error) {
 	p := &Producer{
