@@ -59,14 +59,24 @@ func (p *Producer) send() {
 		case <-p.timer.C:
 		// TODO: 定时批量发送消息
 		case msg := <-p.queue:
-			bytes, err := helper.JsonMarshal(msg)
+			serverPM := &proto.PMessage{
+				Topic: helper.S2B(msg.Topic),
+				Key:   helper.S2B(msg.Key),
+				Value: msg.Value,
+			}
+
+			frame := framePool.Get()
+			_bytes, err := frame.BuildFrom(serverPM)
+
+			// release
 			mPool.PutPM(msg)
+			framePool.Put(frame)
+
 			if err != nil {
 				continue
 			}
 
-			frame := framePool.Get()
-			_, err = p.link.client.Write(frame.BuildWith(proto.PMessageType, bytes))
+			_, err = p.link.client.Write(_bytes)
 			framePool.Put(frame)
 
 			go func() { // 异步发送消息
@@ -104,18 +114,13 @@ func NewAsyncProducer(conf Config) (*Producer, error) {
 		mu:      &sync.Mutex{},
 	}
 
-	msg := &proto.RegisterMessage{
-		Topics: []string{},
-		Ack:    proto.AllConfirm,
-		Type:   proto.ProducerLinkType,
-	}
-	bytes, err := helper.JsonMarshal(msg)
+	frame := framePool.Get()
+	_bytes, err := frame.BuildFrom(proto.NewPRegisterMessage())
 	if err != nil {
 		return nil, err
 	}
 
-	frame := framePool.Get()
-	p.regFrameBytes = frame.BuildWith(proto.RegisterMessageRespType, bytes)
+	p.regFrameBytes = _bytes
 	framePool.Put(frame)
 
 	return p, p.start()

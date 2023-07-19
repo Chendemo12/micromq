@@ -123,9 +123,11 @@ func (m *HCPMessagePool) GetPM() *ProducerMessage {
 }
 
 func (m *HCPMessagePool) PutPM(v *ProducerMessage) {
+	v.Reset()
 	m.ppool.Put(v)
 }
 
 func (m *HCPMessagePool) PutCM(v *ConsumerMessage) {
+	v.Reset()
 	m.cpool.Put(v)
 }

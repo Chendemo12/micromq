@@ -1,8 +1,9 @@
-package engine
+package test
 
 import (
 	"github.com/Chendemo12/functools/environ"
 	"github.com/Chendemo12/functools/zaplog"
+	"github.com/Chendemo12/synshare-mq/src/engine"
 	"testing"
 )
 
@@ -24,7 +25,7 @@ func TestEngine(t *testing.T) {
 		conf.Level = zaplog.DEBUG
 	}
 
-	handler := New(Config{
+	handler := engine.New(engine.Config{
 		Host:        "0.0.0.0",
 		Port:        listenPort,
 		MaxOpenConn: size,

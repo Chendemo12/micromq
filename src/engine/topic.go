@@ -85,13 +85,14 @@ func (t *Topic) Publisher(pm *proto.PMessage) uint64 {
 
 func (t *Topic) Consume() {
 	var stream []byte
+	var err error
 
 	for msg := range t.consumerQueue {
 		frame := framePool.Get()
 		frame.Type = proto.CMessageType
 
-		stream = frame.WriteC(msg)
-		if stream == nil {
+		stream, err = frame.WriteC(msg)
+		if err != nil {
 			continue
 		}
 

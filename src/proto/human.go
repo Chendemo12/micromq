@@ -23,6 +23,13 @@ type ConsumerMessage struct {
 func (m *ConsumerMessage) MessageType() MessageType         { return CMessageType }
 func (m *ConsumerMessage) MarshalMethod() MarshalMethodType { return JsonMarshalMethod }
 
+func (m *ConsumerMessage) Reset() {
+	m.Topic = ""
+	m.Key = ""
+	m.Value = nil
+	m.Offset = 0
+}
+
 // ProducerMessage 生产者直接发送的数据
 // 会转换成 TransferFrame 后发送
 type ProducerMessage struct {
@@ -33,3 +40,9 @@ type ProducerMessage struct {
 
 func (m *ProducerMessage) MessageType() MessageType         { return PMessageType }
 func (m *ProducerMessage) MarshalMethod() MarshalMethodType { return JsonMarshalMethod }
+
+func (m *ProducerMessage) Reset() {
+	m.Topic = ""
+	m.Key = ""
+	m.Value = nil
+}

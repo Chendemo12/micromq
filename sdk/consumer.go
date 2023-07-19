@@ -17,13 +17,12 @@ type ConsumerHandler interface {
 
 // Consumer 消费者
 type Consumer struct {
-	link          *Link           // 底层数据连接
-	handler       ConsumerHandler // 消息处理方法
-	isConnected   bool
-	isRegister    bool // 是否注册成功
-	registerFrame *proto.TransferFrame
-	frameBytes    []byte
-	mu            *sync.Mutex
+	link        *Link           // 底层数据连接
+	handler     ConsumerHandler // 消息处理方法
+	isConnected bool
+	isRegister  bool // 是否注册成功
+	frameBytes  []byte
+	mu          *sync.Mutex
 }
 
 // HandlerFunc 获取注册的消息处理方法
@@ -112,9 +111,8 @@ func NewAsyncConsumer(conf Config, handler ConsumerHandler) (*Consumer, error) {
 		return nil, ErrConsumerHandlerIsNil
 	}
 
-	frame := &proto.TransferFrame{}
-	frame.Reset()
-	frame.Type = proto.RegisterMessageType
+	frame := framePool.Get()
+	defer framePool.Put(frame)
 
 	reporter := &proto.RegisterMessage{
 		Topics: handler.Topics(),
@@ -122,12 +120,10 @@ func NewAsyncConsumer(conf Config, handler ConsumerHandler) (*Consumer, error) {
 		Type:   proto.ConsumerLinkType,
 	}
 
-	bytes, err := proto.BuildAnyMessage(reporter)
+	_bytes, err := frame.BuildFrom(reporter)
 	if err != nil {
 		return nil, err
 	}
-	frame.Data = bytes
-	frame.BuildFields()
 
 	con := &Consumer{
 		handler: handler,
@@ -136,8 +132,8 @@ func NewAsyncConsumer(conf Config, handler ConsumerHandler) (*Consumer, error) {
 			mu:   &sync.Mutex{},
 		},
 	}
-	con.registerFrame = frame
-	con.frameBytes = frame.Build()
+
+	con.frameBytes = _bytes
 	con.link.handler = con // TCP 消息处理接口
 
 	return con, con.start()

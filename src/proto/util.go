@@ -2,8 +2,6 @@ package proto
 
 import (
 	"container/list"
-	"errors"
-	"github.com/Chendemo12/fastapi-tool/helper"
 	"sync"
 	"sync/atomic"
 )
@@ -170,23 +168,18 @@ func ParseCMFrame(cms *[]*CMessage, content []byte) {
 
 }
 
-func BuildAnyMessage(msg Message) ([]byte, error) {
-	if msg == nil {
-		return nil, errors.New("message cannot be nil")
+func NewCRegisterMessage(topics ...string) *RegisterMessage {
+	return &RegisterMessage{
+		Topics: topics,
+		Ack:    AllConfirm,
+		Type:   ConsumerLinkType,
 	}
+}
 
-	if msg.MarshalMethod() == JsonMarshalMethod {
-		return helper.JsonMarshal(msg)
+func NewPRegisterMessage() *RegisterMessage {
+	return &RegisterMessage{
+		Topics: []string{},
+		Ack:    AllConfirm,
+		Type:   ProducerLinkType,
 	}
-
-	switch msg.MessageType() {
-	case CMessageType:
-		slice := BuildPMessages(msg.(*PMessage))
-		return slice, nil
-	case PMessageType:
-		slice := BuildCMessages(msg.(*CMessage))
-		return slice, nil
-	}
-
-	return nil, errors.New("unknown message")
 }

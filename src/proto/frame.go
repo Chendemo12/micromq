@@ -65,11 +65,9 @@ type container struct {
 	}
 }
 
-func (f *TransferFrame) MessageType() MessageType         { return ValidMessageType }
-func (f *TransferFrame) MarshalMethod() MarshalMethodType { return BinaryMarshalMethod }
-
 // Length 获得帧总长
 func (f *TransferFrame) Length() int { return len(f.Data) + 7 }
+
 func (f *TransferFrame) Reset() {
 	f.Head = FrameHead
 	f.Type = ValidMessageType
@@ -109,32 +107,45 @@ func (f *TransferFrame) ParseTo() (Message, error) {
 	return msg, nil
 }
 
+// io.Reader 接口实现
 func (f *TransferFrame) Read(buf []byte) (int, error) {
-	// TODO:
 	return 0, nil
 }
 
+// io.Writer 接口实现
 func (f *TransferFrame) Write(buf []byte) (int, error) {
-	// TODO:
 	return 0, nil
-}
-
-// BuildFields 构建缺省字段
-func (f *TransferFrame) BuildFields() {
-	binary.BigEndian.AppendUint16(f.DataSize, uint16(len(f.Data)))
-	binary.BigEndian.AppendUint16(f.Checksum, CalcChecksum(f.Data))
 }
 
 // BuildWith 补充字段,编码消息帧
-func (f *TransferFrame) BuildWith(typ MessageType, data []byte) []byte {
+func (f *TransferFrame) BuildWith(typ MessageType, data []byte) ([]byte, error) {
 	f.Type = typ
 	f.Data = data
 	return f.Build()
 }
 
+// BuildFrom 从协议中构建消息帧
+func (f *TransferFrame) BuildFrom(m Message) ([]byte, error) {
+	_bytes, err := m.Build()
+	if err != nil {
+		return nil, err
+	}
+
+	f.Type = m.MessageType()
+	f.Data = _bytes
+
+	return f.Build()
+}
+
+// 构建缺省字段
+func (f *TransferFrame) buildFields() {
+	binary.BigEndian.AppendUint16(f.DataSize, uint16(len(f.Data)))
+	binary.BigEndian.AppendUint16(f.Checksum, CalcChecksum(f.Data))
+}
+
 // Build 编码消息帧
-func (f *TransferFrame) Build() []byte {
-	f.BuildFields()
+func (f *TransferFrame) Build() ([]byte, error) {
+	f.buildFields()
 
 	length := f.Length()
 	content := make([]byte, length)
@@ -149,7 +160,7 @@ func (f *TransferFrame) Build() []byte {
 	content[length-2] = f.Checksum[1]
 	content[length-1] = f.Tail
 
-	return content
+	return content, nil
 }
 
 func (f *TransferFrame) write(writer io.Writer) (i int, err error) {
@@ -167,12 +178,14 @@ func (f *TransferFrame) write(writer io.Writer) (i int, err error) {
 	return writer.Write([]byte{FrameTail})
 }
 
-func (f *TransferFrame) WriteP(pms ...*PMessage) []byte {
+// Deprecated: 删除 使用 BuildFrom
+func (f *TransferFrame) WriteP(pms ...*PMessage) ([]byte, error) {
 	f.Data = BuildPMessages(pms...)
 	return f.Build()
 }
 
-func (f *TransferFrame) WriteC(cms ...*CMessage) []byte {
+// Deprecated: 删除 使用 BuildFrom
+func (f *TransferFrame) WriteC(cms ...*CMessage) ([]byte, error) {
 	f.Data = BuildCMessages(cms...) // 必须先为 Data 赋值
 	return f.Build()
 }
