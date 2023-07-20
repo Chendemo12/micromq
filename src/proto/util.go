@@ -94,23 +94,27 @@ type Counter struct {
 	count uint64
 }
 
+// Increment 计数器 +1
 func (c *Counter) Increment() {
 	atomic.AddUint64(&c.count, 1)
 }
 
+// Value 获取当前计数器的数值
 func (c *Counter) Value() uint64 {
 	return atomic.LoadUint64(&c.count)
 }
 
+// ValueBeforeIncrement 首先获取当前计数器的数值，然后将计数器 +1
 func (c *Counter) ValueBeforeIncrement() uint64 {
-	v := c.Value()
-	c.Increment()
+	v := atomic.LoadUint64(&c.count)
+	atomic.AddUint64(&c.count, 1)
 	return v
 }
 
+// ValueAfterIncrement 首先将计数器 +1，然后获取当前计数器的数值
 func (c *Counter) ValueAfterIncrement() uint64 {
-	c.Increment()
-	return c.Value()
+	atomic.AddUint64(&c.count, 1)
+	return atomic.LoadUint64(&c.count)
 }
 
 func NewQueue(capacity int) *Queue {

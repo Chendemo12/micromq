@@ -15,6 +15,7 @@ type HumanMessage interface {
 // ConsumerMessage 直接投递给消费者的单条数据消息
 // 需要从 TransferFrame 中转换
 type ConsumerMessage struct {
+	counter     uint64    // 用以追踪此对象的实例是否由池创建
 	Topic       string    `json:"topic"`
 	Key         string    `json:"key"`
 	Value       []byte    `json:"value"`
@@ -51,9 +52,10 @@ func (m *ConsumerMessage) ShouldBindJSON(v any) error {
 // ProducerMessage 生产者直接发送的数据
 // 会转换成 TransferFrame 后发送
 type ProducerMessage struct {
-	Topic string `json:"topic"`
-	Key   string `json:"key"`
-	Value []byte `json:"value"`
+	counter uint64 // 用以追踪此对象的实例是否由池创建
+	Topic   string `json:"topic"`
+	Key     string `json:"key"`
+	Value   []byte `json:"value"`
 }
 
 func (m *ProducerMessage) MessageType() MessageType { return PMessageType }

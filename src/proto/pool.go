@@ -2,6 +2,8 @@ package proto
 
 import "sync"
 
+// TODO：Put时检验counter是否正确
+
 // 临时切片缓存
 var bcPool = &bytesCachePool{
 	pool: &sync.Pool{
@@ -16,7 +18,7 @@ var bcPool = &bytesCachePool{
 }
 
 func NewFramePool() *FramePool {
-	p := &FramePool{pool: &sync.Pool{}}
+	p := &FramePool{pool: &sync.Pool{}, counter: NewCounter()}
 
 	p.pool.New = func() any {
 		v := &TransferFrame{}
@@ -28,11 +30,13 @@ func NewFramePool() *FramePool {
 }
 
 type FramePool struct {
-	pool *sync.Pool
+	pool    *sync.Pool
+	counter *Counter
 }
 
 func (p *FramePool) Get() *TransferFrame {
 	v := p.pool.Get().(*TransferFrame)
+	v.counter = p.counter.ValueBeforeIncrement()
 	return v
 }
 
@@ -64,7 +68,8 @@ type CPMPool struct {
 }
 
 func (p *CPMPool) GetCM() *CMessage {
-	return p.cpool.Get().(*CMessage)
+	v := p.cpool.Get().(*CMessage)
+	return v
 }
 
 func (p *CPMPool) GetPM() *PMessage {
@@ -109,7 +114,12 @@ func (p *bytesCachePool) Put(v *bytesCache) {
 }
 
 func NewHCPMPool() *HCPMessagePool {
-	p := &HCPMessagePool{cpool: &sync.Pool{}, ppool: &sync.Pool{}}
+	p := &HCPMessagePool{
+		cpool:    &sync.Pool{},
+		ppool:    &sync.Pool{},
+		cCounter: NewCounter(),
+		pCounter: NewCounter(),
+	}
 
 	p.cpool.New = func() any {
 		cm := &ConsumerMessage{}
@@ -124,16 +134,24 @@ func NewHCPMPool() *HCPMessagePool {
 }
 
 type HCPMessagePool struct {
-	cpool *sync.Pool
-	ppool *sync.Pool
+	cpool    *sync.Pool
+	ppool    *sync.Pool
+	cCounter *Counter
+	pCounter *Counter
 }
 
 func (m *HCPMessagePool) GetCM() *ConsumerMessage {
-	return m.cpool.Get().(*ConsumerMessage)
+	v := m.cpool.Get().(*ConsumerMessage)
+	v.counter = m.cCounter.ValueBeforeIncrement()
+
+	return v
 }
 
 func (m *HCPMessagePool) GetPM() *ProducerMessage {
-	return m.ppool.Get().(*ProducerMessage)
+	v := m.ppool.Get().(*ProducerMessage)
+	v.counter = m.pCounter.ValueBeforeIncrement()
+
+	return v
 }
 
 func (m *HCPMessagePool) PutPM(v *ProducerMessage) {

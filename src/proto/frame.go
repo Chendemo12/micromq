@@ -10,6 +10,7 @@ import (
 // TransferFrame TCP传输协议帧, 可一次性传输多条消息
 // TODO: 实现 Reader 和 Writer 接口
 type TransferFrame struct {
+	counter  uint64      // 用以追踪此对象的实例是否由池创建
 	Head     byte        // 恒为 FrameHead
 	Type     MessageType // Data 包含的消息类型
 	DataSize []byte      // 标识消息总长度,2个字节, Data 的长度, 同样适用于多帧报文

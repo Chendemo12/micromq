@@ -151,7 +151,7 @@ func (e *Engine) HandleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remote
 
 	case proto.ProducerLinkType: // 注册生产者
 		prod := &Producer{
-			Conf: &ProducerConfig{Ack: rgm.Ack, TimerInterval: e.ProducerInterval()},
+			Conf: &ProducerConfig{Ack: rgm.Ack, TickerInterval: e.ProducerInterval()},
 			Addr: r.Addr(),
 			Conn: r,
 		}
@@ -173,10 +173,10 @@ func (e *Engine) HandleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remote
 
 	// 无论如何都需要构建返回值
 	resp := &proto.MessageResponse{
-		Result:        true,
-		Offset:        0,
-		ReceiveTime:   time.Now(),
-		TimerInterval: e.ProducerInterval(),
+		Result:         true,
+		Offset:         0,
+		ReceiveTime:    time.Now(),
+		TickerInterval: e.ProducerInterval(),
 	}
 	frame.Type = proto.RegisterMessageRespType
 	frame.Data, err = resp.Build()
@@ -289,8 +289,8 @@ func New(c ...Config) *Engine {
 			BufferSize:  d.BufferSize,
 			Logger:      d.Logger,
 		},
-		producers: make([]*Producer, d.MaxOpenConn),
-		consumers: make([]*Consumer, d.MaxOpenConn),
+		producers: make([]*Producer, 0, d.MaxOpenConn),
+		consumers: make([]*Consumer, 0, d.MaxOpenConn),
 		topics:    &sync.Map{},
 	}
 

@@ -15,7 +15,7 @@ type ConsumerConfig struct {
 type ProducerConfig struct {
 	Ack proto.AckType `json:"ack"`
 	// 定时器间隔，单位ms，仅生产者有效，生产者需要按照此间隔发送帧消息
-	TimerInterval time.Duration `json:"timer_duration"`
+	TickerInterval time.Duration `json:"ticker_duration"`
 }
 
 type Consumer struct {

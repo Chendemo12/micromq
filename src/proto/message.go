@@ -220,7 +220,7 @@ type MessageResponse struct {
 	Offset      uint64    `json:"offset,omitempty"`
 	ReceiveTime time.Time `json:"receive_time,omitempty"`
 	// 定时器间隔，单位ms，仅生产者有效，生产者需要按照此间隔发送帧消息
-	TimerInterval time.Duration `json:"timer_duration,omitempty"`
+	TickerInterval time.Duration `json:"ticker_duration"`
 }
 
 // MessageType 依据偏移量字段判断消息类型

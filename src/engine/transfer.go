@@ -33,16 +33,16 @@ func (t *Transfer) SetEngine(en *Engine) *Transfer {
 }
 
 func (t *Transfer) OnAccepted(r *tcp.Remote) error {
-	t.logger.Info(r.Addr(), "connected.")
+	t.logger.Info(r.Addr(), " connected.")
 	// 连接成功时不关联数据, 仅在注册成功时,关联到 Engine 中
 	return nil
 }
 
 func (t *Transfer) OnClosed(r *tcp.Remote) error {
+	t.logger.Info(r.Addr(), " consumer close connection.")
 	// 删除此连接的消费者记录或生产者记录
 	for _, cons := range t.mq.consumers {
 		if cons.Addr == r.Addr() {
-			t.logger.Info(r.Addr(), "consumer close connection.")
 			t.mq.RemoveConsumer(r.Addr())
 			t.mq.consumers[r.Index()] = nil
 			return nil
@@ -51,7 +51,7 @@ func (t *Transfer) OnClosed(r *tcp.Remote) error {
 
 	for _, prod := range t.mq.producers {
 		if prod.Addr == r.Addr() {
-			t.logger.Info(r.Addr(), "producer close connection.")
+			t.logger.Info(r.Addr(), " producer close connection.")
 			t.mq.producers[r.Index()] = nil
 		}
 	}
