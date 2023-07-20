@@ -243,7 +243,7 @@ func (m *MessageResponse) Reset() {
 }
 
 func (m *MessageResponse) ParseFrom(_ io.Reader) error {
-	return ErrParseFromNotImplemented
+	return ErrMethodNotImplemented
 }
 
 func (m *MessageResponse) Build() ([]byte, error) {
@@ -273,7 +273,17 @@ func (m *RegisterMessage) Length() int { return 0 }
 func (m *RegisterMessage) Reset()      {}
 
 func (m *RegisterMessage) ParseFrom(reader io.Reader) error {
-	return ErrParseFromNotImplemented
+	_bytes := make([]byte, 0, 65535)
+	n, err := reader.Read(_bytes)
+	if n == 0 {
+		return err
+	}
+	fmt.Println(len(_bytes))
+	return helper.JsonUnmarshal(_bytes, m)
+}
+
+func (m *RegisterMessage) String() string {
+	return fmt.Sprintf("<%s> register with '%s'", m.Type, m.Ack)
 }
 
 func (m *RegisterMessage) Build() ([]byte, error) {

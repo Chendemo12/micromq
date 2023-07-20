@@ -1,6 +1,7 @@
 package sdk
 
 import (
+	"github.com/Chendemo12/functools/logger"
 	"github.com/Chendemo12/functools/tcp"
 	"github.com/Chendemo12/synshare-mq/src/proto"
 	"sync"
@@ -8,9 +9,10 @@ import (
 )
 
 type Config struct {
-	Host string `json:"host"`
-	Port string `json:"port"`
-	Ack  proto.AckType
+	Host   string `json:"host"`
+	Port   string `json:"port"`
+	Ack    proto.AckType
+	Logger logger.Iface
 }
 
 type Link struct {

@@ -118,6 +118,12 @@ func (f *TransferFrame) Write(buf []byte) (int, error) {
 	return 0, nil
 }
 
+// 构建缺省字段
+func (f *TransferFrame) buildFields() {
+	binary.BigEndian.AppendUint16(f.DataSize, uint16(len(f.Data)))
+	binary.BigEndian.AppendUint16(f.Checksum, CalcChecksum(f.Data))
+}
+
 // BuildWith 补充字段,编码消息帧
 func (f *TransferFrame) BuildWith(typ MessageType, data []byte) ([]byte, error) {
 	f.Type = typ
@@ -138,12 +144,6 @@ func (f *TransferFrame) BuildFrom(m Message) ([]byte, error) {
 	return f.Build()
 }
 
-// 构建缺省字段
-func (f *TransferFrame) buildFields() {
-	binary.BigEndian.AppendUint16(f.DataSize, uint16(len(f.Data)))
-	binary.BigEndian.AppendUint16(f.Checksum, CalcChecksum(f.Data))
-}
-
 // Build 编码消息帧
 func (f *TransferFrame) Build() ([]byte, error) {
 	f.buildFields()
@@ -162,31 +162,4 @@ func (f *TransferFrame) Build() ([]byte, error) {
 	content[length-1] = f.Tail
 
 	return content, nil
-}
-
-func (f *TransferFrame) write(writer io.Writer) (i int, err error) {
-	n, err := writer.Write([]byte{FrameHead})
-	n, err = writer.Write([]byte{byte(f.Type)})
-	n, err = writer.Write(f.DataSize)
-	n, err = writer.Write(f.Data)
-	n, err = writer.Write(f.Checksum)
-
-	if err != nil {
-		return n, err
-	}
-
-	// 写入结束符
-	return writer.Write([]byte{FrameTail})
-}
-
-// Deprecated: 删除 使用 BuildFrom
-func (f *TransferFrame) WriteP(pms ...*PMessage) ([]byte, error) {
-	f.Data = BuildPMessages(pms...)
-	return f.Build()
-}
-
-// Deprecated: 删除 使用 BuildFrom
-func (f *TransferFrame) WriteC(cms ...*CMessage) ([]byte, error) {
-	f.Data = BuildCMessages(cms...) // 必须先为 Data 赋值
-	return f.Build()
 }

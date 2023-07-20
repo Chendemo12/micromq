@@ -44,8 +44,7 @@ const (
 )
 
 var (
-	ErrMethodNotImplemented    = errors.New("method not implemented")
-	ErrParseFromNotImplemented = errors.New("json marshal does support ParseFrom method")
+	ErrMethodNotImplemented = errors.New("method not implemented")
 )
 
 var (

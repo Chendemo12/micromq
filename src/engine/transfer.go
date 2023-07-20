@@ -40,19 +40,20 @@ func (t *Transfer) OnAccepted(r *tcp.Remote) error {
 
 // OnClosed 连接关闭, 删除此连接的消费者记录或生产者记录
 func (t *Transfer) OnClosed(r *tcp.Remote) error {
-	t.logger.Info(r.Addr(), " consumer close connection.")
+	t.logger.Info(r.Addr(), " close connection.")
 
 	for _, cons := range t.mq.consumers {
 		if cons.Addr == r.Addr() {
 			t.mq.RemoveConsumer(r.Addr())
 			t.mq.consumers[r.Index()] = nil
+			t.logger.Info("producer close connection: ", r.Addr())
 			return nil
 		}
 	}
 
 	for _, prod := range t.mq.producers {
 		if prod.Addr == r.Addr() {
-			t.logger.Info(r.Addr(), " producer close connection.")
+			t.logger.Info("producer close connection: ", r.Addr())
 			t.mq.producers[r.Index()] = nil
 		}
 	}
