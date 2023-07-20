@@ -7,7 +7,7 @@ import (
 )
 
 func main() {
-	listenPort := environ.GetString("LISTEN_PORT", "8090")
+	listenPort := environ.GetString("LISTEN_PORT", "7270")
 	size := environ.GetInt("MAX_OPEN_SIZE", 50)
 	debug := environ.GetBool("DEBUG", false)
 
