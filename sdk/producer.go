@@ -14,7 +14,7 @@ type Producer struct {
 	isRegister    bool   // 是否注册成功
 	regFrameBytes []byte // 注册消息帧
 	queue         chan *proto.ProducerMessage
-	timer         *time.Timer
+	ticker        *time.Ticker
 }
 
 func (p *Producer) OnAccepted(r *tcp.Remote) error {
@@ -39,24 +39,40 @@ func (p *Producer) Handler(r *tcp.Remote) error {
 	return nil
 }
 
+// NewRecord 从池中初始化一个新的消息记录
 func (p *Producer) NewRecord() *proto.ProducerMessage {
 	return mPool.GetPM()
 }
 
-func (p *Producer) Send(msg *proto.ProducerMessage) error {
+// PutRecord 主动归还消息记录到池，仅在主动调用 NewRecord 却没发送数据时使用
+func (p *Producer) PutRecord(msg *proto.ProducerMessage) {
+	mPool.PutPM(msg)
+}
+
+func (p *Producer) Publisher(msg *proto.ProducerMessage) error {
 	if msg.Topic == "" {
+		mPool.PutPM(msg)
 		return ErrTopicEmpty
 	}
 	p.queue <- msg
 	return nil
 }
 
-func (p *Producer) Publisher(msg *proto.ProducerMessage) error { return p.Send(msg) }
+// Send 发送一条消息
+func (p *Producer) Send(fn func(record *proto.ProducerMessage) error) error {
+	msg := p.NewRecord()
+	err := fn(msg)
+	if err != nil {
+		mPool.PutPM(msg)
+		return err
+	}
+	return p.Publisher(msg)
+}
 
 func (p *Producer) send() {
 	for {
 		select {
-		case <-p.timer.C:
+		case <-p.ticker.C:
 		// TODO: 定时批量发送消息
 		case msg := <-p.queue:
 			serverPM := &proto.PMessage{
@@ -87,7 +103,7 @@ func (p *Producer) send() {
 }
 
 func (p *Producer) start() error {
-	p.timer = time.NewTimer(time.Millisecond * 500) // 500 ms
+	p.ticker = time.NewTicker(time.Millisecond * 500) // 500 ms
 
 	err := p.link.Connect()
 	if err != nil {
@@ -109,6 +125,11 @@ func (p *Producer) JSONMarshal(v any) ([]byte, error) {
 
 func (p *Producer) JSONUnmarshal(data []byte, v any) error {
 	return helper.JsonUnmarshal(data, v)
+}
+
+// Beautify 格式化显示字节流
+func (p *Producer) Beautify(data []byte) string {
+	return helper.HexBeautify(data)
 }
 
 // NewAsyncProducer 创建异步生产者,无需再手动启动

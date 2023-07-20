@@ -40,7 +40,7 @@ func (l *Link) Connect() error {
 	go func() {
 		err = c.Start()
 	}()
-	time.Sleep(time.Millisecond * 200)
+	time.Sleep(time.Millisecond * 100)
 
 	return err
 }
