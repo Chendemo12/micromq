@@ -34,6 +34,7 @@ type Topic struct {
 	mu             *sync.Mutex
 }
 
+// 计算当前消息偏移量
 func (t *Topic) makeOffset() uint64 {
 	t.offset = t.counter.ValueBeforeIncrement()
 	return t.offset
@@ -54,6 +55,7 @@ func (t *Topic) AddConsumer(con *Consumer) {
 	t.consumers.Store(con.Addr, con)
 }
 
+// GetConsumer 查找消费者
 func (t *Topic) GetConsumer(addr string) *Consumer {
 	v, ok := t.consumers.Load(addr)
 	if !ok {
@@ -63,6 +65,7 @@ func (t *Topic) GetConsumer(addr string) *Consumer {
 	}
 }
 
+// RemoveConsumer 移除一个消费者
 func (t *Topic) RemoveConsumer(addr string) {
 	t.consumers.Delete(addr)
 }
@@ -86,12 +89,12 @@ func (t *Topic) Publisher(pm *proto.PMessage) uint64 {
 // Consume 向消费者发送消息帧
 // TODO: 实现多个消息压缩为帧
 func (t *Topic) Consume() {
-	var stream []byte
+	var _bytes []byte
 	var err error
 
 	for msg := range t.consumerQueue {
 		frame := framePool.Get()
-		stream, err = frame.BuildFrom(msg)
+		_bytes, err = frame.BuildFrom(msg)
 
 		framePool.Put(frame)
 		mp.PutCM(msg)
@@ -108,7 +111,7 @@ func (t *Topic) Consume() {
 			}
 			go func() {
 				// TODO: tcp.Remote 实现 WriteFrom(reader io.Reader) 方法
-				_, _ = cons.Conn.Write(stream)
+				_, _ = cons.Conn.Write(_bytes)
 				_ = cons.Conn.Drain()
 			}()
 			return true

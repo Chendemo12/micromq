@@ -22,11 +22,14 @@ type Config struct {
 }
 
 type Engine struct {
-	conf      *Config
-	producers []*Producer // 生产者
-	consumers []*Consumer // 消费者
-	topics    *sync.Map
-	transfer  *Transfer
+	conf                 *Config
+	producers            []*Producer // 生产者
+	consumers            []*Consumer // 消费者
+	topics               *sync.Map
+	transfer             *Transfer
+	logger               logger.Iface
+	producerSendInterval time.Duration // 生产者发送消息的时间间隔 = 500ms
+	cpLock               *sync.RWMutex // consumer producer lock
 }
 
 // RangeTopic if false returned, for-loop will stop
@@ -73,6 +76,9 @@ func (e *Engine) GetTopicOffset(name []byte) uint64 {
 
 // RemoveConsumer 删除一个消费者
 func (e *Engine) RemoveConsumer(addr string) {
+	e.cpLock.Lock()
+	defer e.cpLock.Unlock()
+
 	for _, consumer := range e.consumers {
 		if consumer == nil || consumer.Conn == nil {
 			continue
@@ -85,6 +91,7 @@ func (e *Engine) RemoveConsumer(addr string) {
 	}
 }
 
+// IsProducerRegister 依据IP地址判断当前生产者是否已注册
 func (e *Engine) IsProducerRegister(addr string) bool {
 	for _, p := range e.producers {
 		if p.Addr == addr {
@@ -99,13 +106,12 @@ func (e *Engine) Publisher(msg *proto.PMessage) uint64 {
 	return e.GetTopic(msg.Topic).Publisher(msg)
 }
 
-// ProducerInterval 允许生产者发送数据间隔
-func (e *Engine) ProducerInterval() time.Duration {
-	return time.Millisecond * 500
+// ProducerSendInterval 允许生产者发送数据间隔
+func (e *Engine) ProducerSendInterval() time.Duration {
+	return e.producerSendInterval
 }
 
 // Distribute 分发消息
-// TODO: 增加日志记录
 func (e *Engine) Distribute(frame *proto.TransferFrame, r *tcp.Remote) {
 	defer framePool.Put(frame)
 
@@ -129,17 +135,20 @@ func (e *Engine) Distribute(frame *proto.TransferFrame, r *tcp.Remote) {
 
 	// 重新构建并写入消息帧
 	_bytes, err := frame.Build()
-	if err != nil {
+	if err != nil { // 此处构建失败的可能性为0, 为了保持接口一致而为之
 		return
 	}
 	_, err = r.Write(_bytes)
 	err = r.Drain()
 	if err != nil {
+		e.logger.Warn(fmt.Sprintf(
+			"send <message:%d> to '%s' failed: %s", frame.Type, r.Addr(), err,
+		))
 		return
 	}
 }
 
-// HandleRegisterMessage 处理注册消息
+// HandleRegisterMessage 处理注册消息, 内部无需返回消息,通过修改frame实现返回消息
 func (e *Engine) HandleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remote) (bool, error) {
 	msg, err := frame.ParseTo()
 	rgm, ok := msg.(*proto.RegisterMessage)
@@ -147,15 +156,21 @@ func (e *Engine) HandleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remote
 		return false, fmt.Errorf("register message parse failed, %v", err)
 	}
 
+	e.logger.Info(fmt.Sprintf("receive <register:%s> from '%s', %v", rgm.Type, r.Addr(), rgm))
+
 	switch rgm.Type {
 
 	case proto.ProducerLinkType: // 注册生产者
 		prod := &Producer{
-			Conf: &ProducerConfig{Ack: rgm.Ack, TickerInterval: e.ProducerInterval()},
+			Conf: &ProducerConfig{Ack: rgm.Ack, TickerInterval: e.ProducerSendInterval()},
 			Addr: r.Addr(),
 			Conn: r,
 		}
+
+		// 上个锁, 防止刚注册就断开
+		e.cpLock.Lock()
 		e.producers[r.Index()] = prod // 记录生产者, 用于判断其后是否要返回消息投递后的确认消息
+		e.cpLock.Unlock()
 
 	case proto.ConsumerLinkType: // 注册消费者
 		cons := &Consumer{
@@ -164,11 +179,13 @@ func (e *Engine) HandleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remote
 			Conn: r,
 		}
 
+		e.cpLock.Lock()
 		e.consumers[r.Index()] = cons
 
 		for _, name := range rgm.Topics {
 			e.GetTopic([]byte(name)).AddConsumer(cons)
 		}
+		e.cpLock.Unlock()
 	}
 
 	// 无论如何都需要构建返回值
@@ -176,7 +193,7 @@ func (e *Engine) HandleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remote
 		Result:         true,
 		Offset:         0,
 		ReceiveTime:    time.Now(),
-		TickerInterval: e.ProducerInterval(),
+		TickerInterval: e.ProducerSendInterval(),
 	}
 	frame.Type = proto.RegisterMessageRespType
 	frame.Data, err = resp.Build()
@@ -188,9 +205,13 @@ func (e *Engine) HandleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remote
 }
 
 // HandleProductionMessage 处理生产者消息帧，此处需要判断生产者是否已注册
+// 内部无需返回消息,通过修改frame实现返回消息
 func (e *Engine) HandleProductionMessage(frame *proto.TransferFrame, r *tcp.Remote) (bool, error) {
 	if !e.IsProducerRegister(r.Addr()) {
-		return false, ErrProducerNotRegister
+		// 返回令客户端重新注册命令
+		e.logger.Debug("found unregister producer, let re-register: ", r.Addr())
+		e.LetReRegister(r)
+		return false, proto.ErrProducerNotRegister
 	}
 
 	// 会存在多个消息封装为一个帧
@@ -227,22 +248,40 @@ func (e *Engine) HandleProductionMessage(frame *proto.TransferFrame, r *tcp.Remo
 		}
 		_bytes, err2 := resp.Build()
 		if err2 != nil {
+			e.logger.Warn("response build failed: ", err2)
 			return false, fmt.Errorf("response build failed: %v", err2)
 		}
 		frame.Type = proto.MessageRespType
 		frame.Data = _bytes
 		return true, nil
+
 	} else {
 		// 不需要返回值
 		return false, nil
 	}
 }
 
+// LetReRegister 令客户端重新发起注册流程
+func (e *Engine) LetReRegister(r *tcp.Remote) {
+	frame := framePool.Get()
+	defer framePool.Put(frame)
+
+	// 重新发起注册暂无消息体
+	_bytes, err := frame.BuildWith(proto.ReRegisterMessageType, []byte{})
+	if err != nil {
+		e.logger.Warn("make re-register failed: ", err)
+	} else {
+		_, _ = r.Write(_bytes)
+		_ = r.Drain()
+	}
+}
+
+// Run 阻塞运行
 func (e *Engine) Run() {
 	go func() {
 		err := e.transfer.Start()
 		if err != nil {
-			e.conf.Logger.Error("server starts failed, ", err)
+			e.logger.Error("server starts failed: ", err)
 			os.Exit(1)
 		}
 	}()
@@ -255,6 +294,7 @@ func (e *Engine) Run() {
 	e.transfer.Stop()
 }
 
+// New 创建一个新的服务器
 func New(c ...Config) *Engine {
 	var d Config
 
@@ -263,7 +303,7 @@ func New(c ...Config) *Engine {
 	} else {
 		d = Config{
 			Host:        "127.0.0.1",
-			Port:        "9999",
+			Port:        "7270",
 			MaxOpenConn: 50,
 			BufferSize:  200,
 			Logger:      logger.NewDefaultLogger(),
@@ -289,9 +329,13 @@ func New(c ...Config) *Engine {
 			BufferSize:  d.BufferSize,
 			Logger:      d.Logger,
 		},
-		producers: make([]*Producer, 0, d.MaxOpenConn),
-		consumers: make([]*Consumer, 0, d.MaxOpenConn),
-		topics:    &sync.Map{},
+		producers:            make([]*Producer, 0, d.MaxOpenConn),
+		consumers:            make([]*Consumer, 0, d.MaxOpenConn),
+		topics:               &sync.Map{},
+		transfer:             nil,
+		logger:               d.Logger,
+		producerSendInterval: 500 * time.Millisecond,
+		cpLock:               &sync.RWMutex{},
 	}
 
 	eng.transfer = &Transfer{

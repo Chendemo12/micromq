@@ -38,9 +38,10 @@ func (t *Transfer) OnAccepted(r *tcp.Remote) error {
 	return nil
 }
 
+// OnClosed 连接关闭, 删除此连接的消费者记录或生产者记录
 func (t *Transfer) OnClosed(r *tcp.Remote) error {
 	t.logger.Info(r.Addr(), " consumer close connection.")
-	// 删除此连接的消费者记录或生产者记录
+
 	for _, cons := range t.mq.consumers {
 		if cons.Addr == r.Addr() {
 			t.mq.RemoveConsumer(r.Addr())
@@ -61,7 +62,7 @@ func (t *Transfer) OnClosed(r *tcp.Remote) error {
 
 func (t *Transfer) Handler(r *tcp.Remote) error {
 	if r.Len() < proto.FrameMinLength {
-		return ErrMessageNotFull
+		return proto.ErrMessageNotFull
 	}
 
 	frame := framePool.Get()

@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"errors"
 	"github.com/Chendemo12/functools/tcp"
 	"github.com/Chendemo12/synshare-mq/src/proto"
 	"time"
@@ -36,8 +35,3 @@ type Producer struct {
 	Addr string          `json:"addr"`
 	Conn *tcp.Remote     `json:"-"`
 }
-
-var (
-	ErrMessageNotFull      = errors.New("message is not full")
-	ErrProducerNotRegister = errors.New("producer not register")
-)
