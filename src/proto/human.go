@@ -70,8 +70,8 @@ func (m *ProducerMessage) Reset() {
 	m.Value = nil
 }
 
-// ShouldParseJSON 从JSON模型获取序列化数据
-func (m *ProducerMessage) ShouldParseJSON(v any) error {
+// BindFromJSON 从JSON模型获取序列化数据
+func (m *ProducerMessage) BindFromJSON(v any) error {
 	_bytes, err := helper.JsonMarshal(v)
 	if err != nil {
 		return err

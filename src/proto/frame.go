@@ -73,7 +73,7 @@ func (f *TransferFrame) Reset() {
 	f.Head = FrameHead
 	f.Type = ValidMessageType
 	f.DataSize = make([]byte, 2)
-	f.Data = nil
+	f.Data = make([]byte, 0)
 	f.Checksum = make([]byte, 2)
 	f.Tail = FrameTail
 }
@@ -106,16 +106,6 @@ func (f *TransferFrame) ParseTo() (Message, error) {
 	}
 
 	return msg, nil
-}
-
-// io.Reader 接口实现
-func (f *TransferFrame) Read(buf []byte) (int, error) {
-	return 0, nil
-}
-
-// io.Writer 接口实现
-func (f *TransferFrame) Write(buf []byte) (int, error) {
-	return 0, nil
 }
 
 // 构建缺省字段
@@ -162,4 +152,14 @@ func (f *TransferFrame) Build() ([]byte, error) {
 	content[length-1] = f.Tail
 
 	return content, nil
+}
+
+// io.Reader 接口实现
+func (f *TransferFrame) Read(buf []byte) (int, error) {
+	return 0, nil
+}
+
+// io.Writer 接口实现
+func (f *TransferFrame) Write(buf []byte) (int, error) {
+	return 0, nil
 }

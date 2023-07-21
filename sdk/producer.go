@@ -8,6 +8,7 @@ import (
 	"github.com/Chendemo12/functools/tcp"
 	"github.com/Chendemo12/synshare-mq/src/proto"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -21,10 +22,11 @@ type ProducerHandler interface {
 // 而是会按照服务器下发的配置定时批量发送消息,通常为500ms
 type Producer struct {
 	link          *Link // 底层数据连接
-	isConnected   bool
-	isRegister    bool   // 是否注册成功
-	regFrameBytes []byte // 注册消息帧
+	isConnected   *atomic.Bool
+	isRegister    *atomic.Bool // 是否注册成功
+	regFrameBytes []byte       // 注册消息帧
 	queue         chan *proto.ProducerMessage
+	sendInterval  time.Duration
 	ticker        *time.Ticker
 	logger        logger.Iface
 	ctx           context.Context
@@ -35,13 +37,13 @@ type Producer struct {
 func (p *Producer) OnAccepted(r *tcp.Remote) error {
 	p.logger.Info("producer connected, send register message...")
 
-	p.isConnected = true
-	p.isRegister = false
+	p.isConnected.Store(true)
 	return p.ReRegister(r)
 }
 
 // ReRegister 服务器令客户端重新发起注册流程
 func (p *Producer) ReRegister(r *tcp.Remote) error {
+	p.isRegister.Store(true)
 	_, _ = r.Write(p.regFrameBytes)
 	return r.Drain()
 }
@@ -49,8 +51,8 @@ func (p *Producer) ReRegister(r *tcp.Remote) error {
 func (p *Producer) OnClosed(_ *tcp.Remote) error {
 	p.logger.Info("producer connection lost, reconnect...")
 
-	p.isConnected = false
-	p.isRegister = false
+	p.isConnected.Store(false)
+	p.isRegister.Store(false)
 	p.handler.OnClose()
 
 	return nil
@@ -78,11 +80,10 @@ func (p *Producer) Handler(r *tcp.Remote) error {
 
 	switch frame.Type {
 	case proto.RegisterMessageRespType:
-		p.isRegister = true
+		p.isRegister.Store(true)
 		p.handler.OnRegistered()
 
 	case proto.ReRegisterMessageType:
-		p.isRegister = false
 		p.logger.Debug("sever let re-register")
 		p.handler.OnRegisterExpire()
 		return p.ReRegister(r)
@@ -127,6 +128,11 @@ func (p *Producer) Send(fn func(record *proto.ProducerMessage) error) error {
 
 func (p *Producer) sendToServer() {
 	for {
+		if !p.isConnected.Load() { // 客户端未连接
+			time.Sleep(p.sendInterval * 2)
+			continue
+		}
+
 		select {
 		case <-p.ctx.Done():
 			return
@@ -205,22 +211,23 @@ func (h emptyPHandler) OnRegistered()     {}
 func (h emptyPHandler) OnClose()          {}
 func (h emptyPHandler) OnRegisterExpire() {}
 
-// NewAsyncProducer 创建异步生产者,无需再手动启动
-func NewAsyncProducer(conf Config, handlers ...ProducerHandler) (*Producer, error) {
+// NewProducer 创建异步生产者,无需再手动启动
+func NewProducer(conf Config, handlers ...ProducerHandler) *Producer {
 	if conf.Logger == nil {
 		conf.Logger = logger.NewDefaultLogger()
 	}
 	p := &Producer{
-		isConnected: false,
-		isRegister:  false,
-		queue:       make(chan *proto.ProducerMessage, 10),
-		logger:      conf.Logger,
+		isConnected:  &atomic.Bool{},
+		isRegister:   &atomic.Bool{},
+		queue:        make(chan *proto.ProducerMessage, 10),
+		logger:       conf.Logger,
+		sendInterval: DefaultProducerSendInterval,
 	}
 	p.link = &Link{
 		kind:    proto.ProducerLinkType,
 		conf:    &Config{Host: conf.Host, Port: conf.Port},
-		handler: p,
 		mu:      &sync.Mutex{},
+		handler: p,
 	}
 
 	if len(handlers) > 0 && handlers[0] != nil {
@@ -230,13 +237,15 @@ func NewAsyncProducer(conf Config, handlers ...ProducerHandler) (*Producer, erro
 	}
 
 	frame := framePool.Get()
-	_bytes, err := frame.BuildFrom(proto.NewPRegisterMessage())
-	if err != nil {
-		return nil, err
-	}
-
-	p.regFrameBytes = _bytes
+	p.regFrameBytes, _ = frame.BuildFrom(proto.NewPRegisterMessage())
 	framePool.Put(frame)
+
+	return p
+}
+
+// NewAsyncProducer 创建异步生产者,无需再手动启动
+func NewAsyncProducer(conf Config, handlers ...ProducerHandler) (*Producer, error) {
+	p := NewProducer(conf, handlers...)
 
 	return p, p.Start()
 }

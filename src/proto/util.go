@@ -87,34 +87,29 @@ func CalcChecksum(data []byte) uint16 {
 	return uint16(^sum)
 }
 
-func NewCounter() *Counter { return &Counter{count: 0} }
+// NewCounter 创建一个新的计数器
+func NewCounter() *Counter { return &Counter{v: 0, counter: &atomic.Uint64{}} }
 
 // Counter 计数器
 type Counter struct {
-	count uint64
-}
-
-// Increment 计数器 +1
-func (c *Counter) Increment() {
-	atomic.AddUint64(&c.count, 1)
+	v       uint64 // 必要时存储上一个值
+	counter *atomic.Uint64
 }
 
 // Value 获取当前计数器的数值
-func (c *Counter) Value() uint64 {
-	return atomic.LoadUint64(&c.count)
+func (c *Counter) Value() uint64 { return c.counter.Load() }
+
+// Increment 计数器 +1，并返回新的值
+func (c *Counter) Increment() {
+	// 原子地将给定的增量添加到atomic.Uint64的值，并返回新的值
+	c.counter.Add(1)
 }
 
 // ValueBeforeIncrement 首先获取当前计数器的数值，然后将计数器 +1
 func (c *Counter) ValueBeforeIncrement() uint64 {
-	v := atomic.LoadUint64(&c.count)
-	atomic.AddUint64(&c.count, 1)
-	return v
-}
-
-// ValueAfterIncrement 首先将计数器 +1，然后获取当前计数器的数值
-func (c *Counter) ValueAfterIncrement() uint64 {
-	atomic.AddUint64(&c.count, 1)
-	return atomic.LoadUint64(&c.count)
+	c.v = c.counter.Load()
+	c.counter.Add(1)
+	return c.v
 }
 
 func NewQueue(capacity int) *Queue {

@@ -8,6 +8,7 @@ import (
 	"github.com/Chendemo12/functools/tcp"
 	"github.com/Chendemo12/synshare-mq/src/proto"
 	"sync"
+	"sync/atomic"
 )
 
 type ConsumerHandler interface {
@@ -21,8 +22,8 @@ type ConsumerHandler interface {
 type Consumer struct {
 	link        *Link           // 底层数据连接
 	handler     ConsumerHandler // 消息处理方法
-	isConnected bool
-	isRegister  bool // 是否注册成功
+	isConnected *atomic.Bool
+	isRegister  *atomic.Bool // 是否注册成功
 	frameBytes  []byte
 	mu          *sync.Mutex
 }
@@ -30,9 +31,16 @@ type Consumer struct {
 // HandlerFunc 获取注册的消息处理方法
 func (c *Consumer) HandlerFunc() ConsumerHandler { return c.handler }
 
+func (c *Consumer) ReRegister(r *tcp.Remote) error {
+	c.isRegister.Store(false)
+	_, err := r.Write(c.frameBytes)
+	err = r.Drain()
+	return err
+}
+
 // OnAccepted 当TCP连接成功时就发送注册消息
 func (c *Consumer) OnAccepted(r *tcp.Remote) error {
-	c.isConnected = true
+	c.isConnected.Store(true)
 
 	// 连接成功,发送注册消息
 	_, err := r.Write(c.frameBytes)
@@ -46,8 +54,8 @@ func (c *Consumer) OnAccepted(r *tcp.Remote) error {
 }
 
 func (c *Consumer) OnClosed(_ *tcp.Remote) error {
-	c.isConnected = true
-	c.isRegister = false
+	c.isConnected.Store(true)
+	c.isRegister.Store(true)
 	go c.handler.OnClosed()
 	return nil
 }
@@ -61,8 +69,13 @@ func (c *Consumer) Handler(r *tcp.Remote) error {
 
 	switch frame.Type {
 	case proto.RegisterMessageRespType:
-		c.isRegister = true
+		c.isRegister.Store(true)
 		framePool.Put(frame)
+
+	case proto.ReRegisterMessageType:
+		c.isRegister.Store(false)
+		return c.ReRegister(r)
+
 	case proto.CMessageType:
 		go c.handleMessage(frame)
 	}
@@ -105,7 +118,7 @@ func (c *Consumer) handleMessage(frame *proto.TransferFrame) {
 	for _, cm := range cms {
 		msg := cm
 		go func() {
-			if c.isRegister && python.Has[string](c.handler.Topics(), msg.Topic) {
+			if c.isRegister.Load() && python.Has[string](c.handler.Topics(), msg.Topic) {
 				c.handler.Handler(msg)
 			} else {
 				// 出现脏数据
@@ -117,17 +130,18 @@ func (c *Consumer) handleMessage(frame *proto.TransferFrame) {
 }
 
 // IsConnected 与服务器是否连接成功
-func (c *Consumer) IsConnected() bool { return c.isConnected }
+func (c *Consumer) IsConnected() bool { return c.isConnected.Load() }
 
 // IsRegister 消费者是否注册成功
-func (c *Consumer) IsRegister() bool { return c.isRegister }
+func (c *Consumer) IsRegister() bool { return c.isRegister.Load() }
 
 // StatusOK 连接状态是否正常
-func (c *Consumer) StatusOK() bool { return c.isConnected && c.isRegister }
+func (c *Consumer) StatusOK() bool { return c.isConnected.Load() && c.isRegister.Load() }
 
-func (c *Consumer) start() error {
-	c.isRegister = false
-	c.isConnected = false
+// Start 异步启动
+func (c *Consumer) Start() error {
+	c.isRegister.Store(false)
+	c.isConnected.Store(false)
 
 	return c.link.Connect()
 }
@@ -143,7 +157,7 @@ func (c *Consumer) JSONMarshal(v any) ([]byte, error) {
 	return helper.JsonMarshal(v)
 }
 
-func NewAsyncConsumer(conf Config, handler ConsumerHandler) (*Consumer, error) {
+func NewConsumer(conf Config, handler ConsumerHandler) (*Consumer, error) {
 	if handler == nil || len(handler.Topics()) < 1 {
 		return nil, ErrTopicEmpty
 	}
@@ -177,5 +191,14 @@ func NewAsyncConsumer(conf Config, handler ConsumerHandler) (*Consumer, error) {
 	con.frameBytes = _bytes
 	con.link.handler = con // TCP 消息处理接口
 
-	return con, con.start()
+	return con, nil
+}
+
+func NewAsyncConsumer(conf Config, handler ConsumerHandler) (*Consumer, error) {
+	con, err := NewConsumer(conf, handler)
+	if err != nil {
+		return nil, err
+	}
+
+	return con, con.Start()
 }
