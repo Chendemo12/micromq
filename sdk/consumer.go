@@ -20,10 +20,11 @@ type ConsumerHandler interface {
 
 // Consumer 消费者
 type Consumer struct {
+	conf        *Config         //
 	link        *Link           // 底层数据连接
 	handler     ConsumerHandler // 消息处理方法
-	isConnected *atomic.Bool
-	isRegister  *atomic.Bool // 是否注册成功
+	isConnected *atomic.Bool    // tcp是否连接成功
+	isRegister  *atomic.Bool    // 是否注册成功
 	frameBytes  []byte
 	mu          *sync.Mutex
 }
@@ -132,8 +133,8 @@ func (c *Consumer) handleMessage(frame *proto.TransferFrame) {
 // IsConnected 与服务器是否连接成功
 func (c *Consumer) IsConnected() bool { return c.isConnected.Load() }
 
-// IsRegister 消费者是否注册成功
-func (c *Consumer) IsRegister() bool { return c.isRegister.Load() }
+// IsRegistered 消费者是否注册成功
+func (c *Consumer) IsRegistered() bool { return c.isRegister.Load() }
 
 // StatusOK 连接状态是否正常
 func (c *Consumer) StatusOK() bool { return c.isConnected.Load() && c.isRegister.Load() }
@@ -165,6 +166,13 @@ func NewConsumer(conf Config, handler ConsumerHandler) (*Consumer, error) {
 	if handler == nil || handler.Handler == nil {
 		return nil, ErrConsumerHandlerIsNil
 	}
+	c := &Config{
+		Host:   conf.Host,
+		Port:   conf.Port,
+		Ack:    conf.Ack,
+		Ctx:    conf.Ctx,
+		Logger: conf.Logger,
+	}
 
 	frame := framePool.Get()
 	defer framePool.Put(frame)
@@ -181,10 +189,13 @@ func NewConsumer(conf Config, handler ConsumerHandler) (*Consumer, error) {
 	}
 
 	con := &Consumer{
+		conf:    c.Clean(),
 		handler: handler,
 		link: &Link{
-			conf: &Config{Host: conf.Host, Port: conf.Port, Ack: proto.AllConfirm},
-			mu:   &sync.Mutex{},
+			Host:    c.Host,
+			Port:    c.Port,
+			Kind:    proto.ConsumerLinkType,
+			handler: nil,
 		},
 	}
 

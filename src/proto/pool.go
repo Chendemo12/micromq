@@ -20,7 +20,7 @@ func NewCPMPool() *CPMPool {
 	p := &CPMPool{cpool: &sync.Pool{}, ppool: &sync.Pool{}}
 
 	p.cpool.New = func() any {
-		cm := &CMessage{Pm: &PMessage{}}
+		cm := &CMessage{PM: &PMessage{}}
 		cm.Reset()
 		return cm
 	}

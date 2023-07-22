@@ -156,7 +156,7 @@ func (e *Engine) HandleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remote
 		return false, fmt.Errorf("register message parse failed, %v", err)
 	}
 
-	e.logger.Info(fmt.Sprintf("receive <register:%s> from '%s', %s", rgm.Type, r.Addr(), rgm))
+	e.logger.Info(fmt.Sprintf("receive '%s' from  %s", rgm, r.Addr()))
 
 	switch rgm.Type {
 	case proto.ProducerLinkType: // 注册生产者

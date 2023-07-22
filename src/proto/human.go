@@ -2,6 +2,7 @@ package proto
 
 import (
 	"encoding/binary"
+	"fmt"
 	"github.com/Chendemo12/fastapi-tool/helper"
 	"time"
 )
@@ -10,6 +11,7 @@ import (
 type HumanMessage interface {
 	MessageType() MessageType         // 消息类别
 	MarshalMethod() MarshalMethodType // 消息序列化方法
+	String() string
 }
 
 // ConsumerMessage 直接投递给消费者的单条数据消息
@@ -23,6 +25,14 @@ type ConsumerMessage struct {
 	ProductTime time.Time `json:"product_time"` // 服务端收到消息时的时间戳
 }
 
+func (m *ConsumerMessage) String() string {
+	// "<message:ConsumerMessage> on [ T::DNS_UPDATE | K::2023-07-22T12:23:48.767 | O::2342 ] with 200 bytes of payload"
+	return fmt.Sprintf(
+		"<message:%s> on [ T::%s | K::%s | O::%d ] with %d bytes of payload",
+		MessageTypeText(m.MessageType()), m.Topic, m.Key, m.Offset, len(m.Value),
+	)
+}
+
 func (m *ConsumerMessage) MessageType() MessageType { return CMessageType }
 
 func (m *ConsumerMessage) MarshalMethod() MarshalMethodType {
@@ -30,9 +40,9 @@ func (m *ConsumerMessage) MarshalMethod() MarshalMethodType {
 }
 
 func (m *ConsumerMessage) ParseFromCMessage(cm *CMessage) {
-	m.Topic = string(cm.Pm.Topic)
-	m.Key = string(cm.Pm.Key)
-	m.Value = cm.Pm.Value
+	m.Topic = string(cm.PM.Topic)
+	m.Key = string(cm.PM.Key)
+	m.Value = cm.PM.Value
 	m.Offset = binary.BigEndian.Uint64(cm.Offset)
 	m.ProductTime = time.Unix(int64(binary.BigEndian.Uint64(cm.ProductTime)), 0)
 }
@@ -56,6 +66,14 @@ type ProducerMessage struct {
 	Topic   string `json:"topic"`
 	Key     string `json:"key"`
 	Value   []byte `json:"value"`
+}
+
+func (m *ProducerMessage) String() string {
+	// "<message:ConsumerMessage> on [ T::DNS_UPDATE | K::2023-07-22T12:23:48.767 ] with 200 bytes of payload"
+	return fmt.Sprintf(
+		"<message:%s> on [ T::%s | K::%s ] with %d bytes of payload",
+		MessageTypeText(m.MessageType()), m.Topic, m.Key, len(m.Value),
+	)
 }
 
 func (m *ProducerMessage) MessageType() MessageType { return PMessageType }

@@ -59,12 +59,12 @@ func BuildCMessages(cms ...*CMessage) (slice []byte) {
 	slice = make([]byte, 0, sliceLength) // 分配最大长度
 
 	for _, m := range cms {
-		slice = append(slice, byte(len(m.Pm.Topic)))
-		slice = append(slice, m.Pm.Topic...)
-		slice = append(slice, byte(len(m.Pm.Key)))
-		slice = append(slice, m.Pm.Key...)
-		slice = append(slice, byte(len(m.Pm.Value)))
-		slice = append(slice, m.Pm.Value...)
+		slice = append(slice, byte(len(m.PM.Topic)))
+		slice = append(slice, m.PM.Topic...)
+		slice = append(slice, byte(len(m.PM.Key)))
+		slice = append(slice, m.PM.Key...)
+		slice = append(slice, byte(len(m.PM.Value)))
+		slice = append(slice, m.PM.Value...)
 		slice = append(slice, m.Offset[:7]...)
 		slice = append(slice, m.ProductTime[:7]...)
 	}

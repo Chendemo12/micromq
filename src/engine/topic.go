@@ -77,7 +77,7 @@ func (t *Topic) Publisher(pm *proto.PMessage) uint64 {
 
 	binary.BigEndian.PutUint64(cm.Offset, offset)
 	binary.BigEndian.PutUint64(cm.ProductTime, uint64(time.Now().Unix()))
-	cm.Pm = pm
+	cm.PM = pm
 
 	// 若缓冲区已满, 则丢弃最早的数据
 	t.publisherQueue.Append(cm)
@@ -98,7 +98,7 @@ func (t *Topic) Consume() {
 
 		framePool.Put(frame)
 		mp.PutCM(msg)
-		mp.PutPM(msg.Pm)
+		mp.PutPM(msg.PM)
 
 		if err != nil {
 			continue

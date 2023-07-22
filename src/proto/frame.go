@@ -30,7 +30,7 @@ func (f *TransferFrame) ParseFrom(reader io.Reader) error {
 	f.Type = MessageType(bc.oneByte[0])
 
 	bc.i, bc.err = reader.Read(f.DataSize)
-	f.Data = make([]byte, f.DataLength())
+	f.Data = make([]byte, f.ParseDataLength())
 
 	bc.i, bc.err = reader.Read(f.Data)
 	if bc.err != nil {
@@ -66,20 +66,27 @@ type container struct {
 	}
 }
 
+func (f *TransferFrame) String() string {
+	return fmt.Sprintf(
+		"<frame:%s>(%s) with %d bytes of payload",
+		MessageTypeText(f.Type), f.Checksum, len(f.Data),
+	)
+}
+
 // Length 获得帧总长
 func (f *TransferFrame) Length() int { return len(f.Data) + 7 }
 
 func (f *TransferFrame) Reset() {
 	f.Head = FrameHead
-	f.Type = ValidMessageType
+	f.Type = NotImplementMessageType
 	f.DataSize = make([]byte, 2)
 	f.Data = make([]byte, 0)
 	f.Checksum = make([]byte, 2)
 	f.Tail = FrameTail
 }
 
-// DataLength 获得消息的总长度, DataSize 由标识
-func (f *TransferFrame) DataLength() int {
+// ParseDataLength 获得消息的总长度, DataSize 由标识
+func (f *TransferFrame) ParseDataLength() int {
 	return int(binary.BigEndian.Uint16(f.DataSize))
 }
 
@@ -97,7 +104,7 @@ func (f *TransferFrame) ParseTo() (Message, error) {
 	case RegisterMessageRespType:
 		msg = &MessageResponse{}
 	default:
-		msg = &ValidMessage{}
+		msg = &NotImplementMessage{}
 	}
 
 	err := msg.ParseFrom(bytes.NewBuffer(f.Data))

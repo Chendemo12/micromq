@@ -7,7 +7,6 @@ import (
 	"github.com/Chendemo12/functools/logger"
 	"github.com/Chendemo12/functools/tcp"
 	"github.com/Chendemo12/synshare-mq/src/proto"
-	"sync"
 	"sync/atomic"
 	"time"
 )
@@ -21,18 +20,51 @@ type ProducerHandler interface {
 // Producer 生产者, 通过 Send 发送的消息并非会立即投递给服务端
 // 而是会按照服务器下发的配置定时批量发送消息,通常为500ms
 type Producer struct {
-	link          *Link // 底层数据连接
-	isConnected   *atomic.Bool
+	conf          *Config      //
+	link          *Link        // 底层数据连接
+	isConnected   *atomic.Bool // tcp是否连接成功
 	isRegister    *atomic.Bool // 是否注册成功
-	regFrameBytes []byte       // 注册消息帧
+	regFrameBytes []byte       // 注册消息帧字节流
 	queue         chan *proto.ProducerMessage
-	sendInterval  time.Duration
-	ticker        *time.Ticker
+	tickInterval  time.Duration
 	logger        logger.Iface
 	ctx           context.Context
 	cancel        context.CancelFunc
 	handler       ProducerHandler
+	dingDong      chan struct{}
 }
+
+// 收到来自服务端的消息发送成功确认消息
+func (p *Producer) receiveFin() {
+	// TODO: ack 未实现
+	if p.conf.Ack == proto.NoConfirm {
+	}
+}
+
+// 每滴答一次，就产生一个数据发送信号
+func (p *Producer) tick() {
+	for {
+		select {
+		case <-p.Done():
+			return
+		default:
+			time.Sleep(p.tickInterval)
+			p.dingDong <- struct{}{} // 发送信号
+		}
+	}
+}
+
+// 修改滴答周期, 此周期由服务端修改
+func (p *Producer) modifyTick(interval time.Duration) {
+	if interval < time.Second*10 && interval > time.Millisecond*100 {
+		p.tickInterval = interval
+	}
+}
+
+func (p *Producer) IsConnected() bool  { return p.isConnected.Load() }
+func (p *Producer) IsRegistered() bool { return p.isRegister.Load() }
+
+func (p *Producer) Done() <-chan struct{} { return p.ctx.Done() }
 
 func (p *Producer) OnAccepted(r *tcp.Remote) error {
 	p.logger.Info("producer connected, send register message...")
@@ -56,13 +88,6 @@ func (p *Producer) OnClosed(_ *tcp.Remote) error {
 	p.handler.OnClose()
 
 	return nil
-}
-
-// 收到来自服务端的消息发送成功确认消息
-func (p *Producer) receiveFin() {
-	// TODO: ack 未实现
-	if p.link.conf.Ack == proto.NoConfirm {
-	}
 }
 
 func (p *Producer) Handler(r *tcp.Remote) error {
@@ -127,17 +152,23 @@ func (p *Producer) Send(fn func(record *proto.ProducerMessage) error) error {
 }
 
 func (p *Producer) sendToServer() {
+	var rate byte = 2
 	for {
 		if !p.isConnected.Load() { // 客户端未连接
-			time.Sleep(p.sendInterval * 2)
+			if rate > 10 {
+				rate = 2
+			}
+			time.Sleep(p.tickInterval * time.Duration(rate))
+			rate++ // 等待时间逐渐延长
 			continue
 		}
 
+		rate = 2 // 重置等待时间
 		select {
 		case <-p.ctx.Done():
 			return
 
-		case <-p.ticker.C:
+		case <-p.dingDong:
 
 		// TODO: 定时批量发送消息
 		case msg := <-p.queue:
@@ -170,15 +201,13 @@ func (p *Producer) sendToServer() {
 }
 
 func (p *Producer) Start() error {
-	p.ticker = time.NewTicker(time.Millisecond * 500) // 500 ms
-	p.ctx, p.cancel = context.WithCancel(context.Background())
-
 	err := p.link.Connect()
 	if err != nil {
 		// 连接服务器失败
 		return err
 	}
 
+	go p.tick()
 	go p.sendToServer()
 
 	return nil
@@ -186,7 +215,9 @@ func (p *Producer) Start() error {
 
 func (p *Producer) Stop() {
 	p.cancel()
-	_ = p.link.client.Stop()
+	if p.link != nil && p.link.client != nil {
+		_ = p.link.client.Stop()
+	}
 }
 
 // ==================================== methods shortcut ====================================
@@ -213,20 +244,28 @@ func (h emptyPHandler) OnRegisterExpire() {}
 
 // NewProducer 创建异步生产者,无需再手动启动
 func NewProducer(conf Config, handlers ...ProducerHandler) *Producer {
-	if conf.Logger == nil {
-		conf.Logger = logger.NewDefaultLogger()
+	c := &Config{
+		Host:   conf.Host,
+		Port:   conf.Port,
+		Ack:    conf.Ack,
+		Ctx:    conf.Ctx,
+		Logger: conf.Logger,
 	}
 	p := &Producer{
+		conf:         c.Clean(),
 		isConnected:  &atomic.Bool{},
 		isRegister:   &atomic.Bool{},
 		queue:        make(chan *proto.ProducerMessage, 10),
 		logger:       conf.Logger,
-		sendInterval: DefaultProducerSendInterval,
+		tickInterval: DefaultProducerSendInterval, // 此值由服务更改
 	}
+	p.ctx, p.cancel = context.WithCancel(p.conf.Ctx)
+	p.dingDong = make(chan struct{}, 1)
+
 	p.link = &Link{
-		kind:    proto.ProducerLinkType,
-		conf:    &Config{Host: conf.Host, Port: conf.Port},
-		mu:      &sync.Mutex{},
+		Host:    c.Host,
+		Port:    c.Port,
+		Kind:    proto.ProducerLinkType,
 		handler: p,
 	}
 

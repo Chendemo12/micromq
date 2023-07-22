@@ -47,6 +47,14 @@ type PMessage struct {
 	Value  []byte
 }
 
+func (m *PMessage) String() string {
+	// "<message:ConsumerMessage> on [ T::DNS_UPDATE | K::2023-07-22T12:23:48.767 ] with 200 bytes of payload"
+	return fmt.Sprintf(
+		"<message:%s> on [ T::%s | K::%s ] with %d bytes of payload",
+		MessageTypeText(m.MessageType()), m.Topic, m.Key, len(m.Value),
+	)
+}
+
 func (m *PMessage) MessageType() MessageType { return PMessageType }
 
 func (m *PMessage) MarshalMethod() MarshalMethodType {
@@ -143,7 +151,15 @@ func (m *PMessage) BuildTo(writer io.Writer) (int, error) {
 type CMessage struct {
 	Offset      []byte // uint64
 	ProductTime []byte // time.Time.Unix() 消息创建的Unix时间戳
-	Pm          *PMessage
+	PM          *PMessage
+}
+
+func (m *CMessage) String() string {
+	// "<message:ConsumerMessage> on [ T::DNS_UPDATE | K::2023-07-22T12:23:48.767 | O::2342 ] with 200 bytes of payload"
+	return fmt.Sprintf(
+		"<message:%s> on [ T::%s | K::%s | O::%d ] with %d bytes of payload",
+		MessageTypeText(m.MessageType()), m.PM.Topic, m.PM.Key, m.Offset, len(m.PM.Value),
+	)
 }
 
 func (m *CMessage) MessageType() MessageType { return CMessageType }
@@ -152,12 +168,12 @@ func (m *CMessage) MarshalMethod() MarshalMethodType {
 	return BinaryMarshalMethod
 }
 
-func (m *CMessage) Length() int { return 16 + m.Pm.Length() }
+func (m *CMessage) Length() int { return 16 + m.PM.Length() }
 
 func (m *CMessage) Reset() {
 	m.Offset = make([]byte, 8)
 	m.ProductTime = make([]byte, 8)
-	m.Pm.Reset()
+	m.PM.Reset()
 }
 
 func (m *CMessage) ParseFrom(reader io.Reader) error {
@@ -170,7 +186,7 @@ func (m *CMessage) ParseFrom(reader io.Reader) error {
 	//		Offset      uint64
 	//		ProductTime int64 // time.Time.Unix()
 
-	err := m.Pm.ParseFrom(reader)
+	err := m.PM.ParseFrom(reader)
 	if err != nil {
 		return err
 	}
@@ -199,7 +215,7 @@ func (m *CMessage) Build() ([]byte, error) {
 	//		Value       []byte
 	//		Offset      uint64
 	//		ProductTime int64 // time.Time.Unix()
-	bytes, _ := m.Pm.Build()
+	bytes, _ := m.PM.Build()
 	slice = append(slice, bytes...)
 	slice = append(slice, m.Offset[:7]...)
 	slice = append(slice, m.ProductTime[:7]...)
@@ -216,11 +232,18 @@ func (m *CMessage) BuildTo(writer io.Writer) (int, error) {
 
 // MessageResponse 消息响应， P和C通用
 type MessageResponse struct {
-	Result      bool      `json:"result"`
+	Result      bool      `json:"result"` // 仅当 true 时才认为服务器接受了请求并下方了有效的参数
 	Offset      uint64    `json:"offset,omitempty"`
 	ReceiveTime time.Time `json:"receive_time,omitempty"`
 	// 定时器间隔，单位ms，仅生产者有效，生产者需要按照此间隔发送帧消息
 	TickerInterval time.Duration `json:"ticker_duration"`
+}
+
+func (m *MessageResponse) String() string {
+	return fmt.Sprintf(
+		"<message:%s> with result: %t",
+		MessageTypeText(m.MessageType()), m.Result,
+	)
 }
 
 // MessageType 依据偏移量字段判断消息类型
@@ -263,6 +286,13 @@ type RegisterMessage struct {
 	Type   LinkType `json:"type"`
 }
 
+func (m *RegisterMessage) String() string {
+	return fmt.Sprintf(
+		"<message:%s> %s with %s",
+		MessageTypeText(m.MessageType()), m.Type, m.Ack,
+	)
+}
+
 func (m *RegisterMessage) MessageType() MessageType { return RegisterMessageType }
 
 func (m *RegisterMessage) MarshalMethod() MarshalMethodType {
@@ -270,7 +300,8 @@ func (m *RegisterMessage) MarshalMethod() MarshalMethodType {
 }
 
 func (m *RegisterMessage) Length() int { return 0 }
-func (m *RegisterMessage) Reset()      {}
+
+func (m *RegisterMessage) Reset() {}
 
 func (m *RegisterMessage) ParseFrom(reader io.Reader) error {
 	_bytes := make([]byte, 0, 65535)
@@ -280,10 +311,6 @@ func (m *RegisterMessage) ParseFrom(reader io.Reader) error {
 	}
 	fmt.Println(len(_bytes))
 	return helper.JsonUnmarshal(_bytes, m)
-}
-
-func (m *RegisterMessage) String() string {
-	return fmt.Sprintf("<%s> register with '%s'", m.Type, m.Ack)
 }
 
 func (m *RegisterMessage) Build() ([]byte, error) {
@@ -296,18 +323,23 @@ func (m *RegisterMessage) BuildTo(writer io.Writer) (int, error) {
 
 // ========================================== 协议定义 ==========================================
 
-type ValidMessage struct{}
+type NotImplementMessage struct{}
 
-func (m ValidMessage) MessageType() MessageType         { return ValidMessageType }
-func (m ValidMessage) MarshalMethod() MarshalMethodType { return BinaryMarshalMethod }
-func (m ValidMessage) ParseFrom(_ io.Reader) error      { return ErrMethodNotImplemented }
-func (m ValidMessage) Length() int                      { return 0 }
-func (m ValidMessage) Reset()                           {}
+func (m NotImplementMessage) String() string {
+	return fmt.Sprintf(
+		"<message:%s> not implemented", MessageTypeText(m.MessageType()))
+}
 
-func (m ValidMessage) Build() ([]byte, error) {
+func (m NotImplementMessage) MessageType() MessageType         { return NotImplementMessageType }
+func (m NotImplementMessage) MarshalMethod() MarshalMethodType { return BinaryMarshalMethod }
+func (m NotImplementMessage) ParseFrom(_ io.Reader) error      { return ErrMethodNotImplemented }
+func (m NotImplementMessage) Length() int                      { return 0 }
+func (m NotImplementMessage) Reset()                           {}
+
+func (m NotImplementMessage) Build() ([]byte, error) {
 	return nil, ErrMethodNotImplemented
 }
 
-func (m ValidMessage) BuildTo(_ io.Writer) (int, error) {
+func (m NotImplementMessage) BuildTo(_ io.Writer) (int, error) {
 	return 0, ErrMethodNotImplemented
 }
