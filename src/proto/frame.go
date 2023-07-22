@@ -58,6 +58,11 @@ func (f *TransferFrame) ParseFrom(reader io.Reader) error {
 		return fmt.Errorf("checksum date read failed: %v", bc.err)
 	}
 
+	f.Data, bc.err = GlobalCrypto().Decrypt(f.Data) // 解密消息体
+	if bc.err != nil {
+		return fmt.Errorf("payload decrypt failed: %v", bc.err)
+	}
+
 	return nil
 }
 
@@ -164,14 +169,18 @@ func (f *TransferFrame) BuildFrom(m Message) ([]byte, error) {
 		return nil, err
 	}
 
-	f.Type = m.MessageType()
-	f.Data = _bytes
-
-	return f.Build()
+	return f.BuildWith(m.MessageType(), _bytes)
 }
 
 // Build 编码消息帧 (最终方法)
 func (f *TransferFrame) Build() ([]byte, error) {
+	var err error
+
+	f.Data, err = GlobalCrypto().Encrypt(f.Data) // 加密
+	if err != nil {
+		return nil, fmt.Errorf("payload encrypt failed: %v", err)
+	}
+
 	f.buildFields()
 
 	length := f.Length()

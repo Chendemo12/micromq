@@ -19,6 +19,25 @@ type Config struct {
 	MaxOpenConn int          `json:"max_open_conn"`
 	BufferSize  int          `json:"buffer_size"`
 	Logger      logger.Iface `json:"-"`
+	Crypto      proto.Crypto `json:"-"` // 加密器
+}
+
+func (c *Config) Clean() *Config {
+	if !(c.BufferSize > 0 && c.BufferSize <= 5000) {
+		c.BufferSize = 100
+	}
+	if !(c.MaxOpenConn > 0 && c.MaxOpenConn <= 100) {
+		c.MaxOpenConn = 50
+	}
+
+	if c.Logger == nil {
+		c.Logger = logger.NewDefaultLogger()
+	}
+	if c.Crypto == nil {
+		c.Crypto = proto.DefaultCrypto()
+	}
+
+	return c
 }
 
 type Engine struct {
@@ -27,10 +46,11 @@ type Engine struct {
 	consumers            []*Consumer // 消费者
 	topics               *sync.Map
 	transfer             *Transfer
-	logger               logger.Iface
 	producerSendInterval time.Duration // 生产者发送消息的时间间隔 = 500ms
 	cpLock               *sync.RWMutex // consumer producer lock
 }
+
+func (e *Engine) Logger() logger.Iface { return e.conf.Logger }
 
 // RangeTopic if false returned, for-loop will stop
 func (e *Engine) RangeTopic(fn func(topic *Topic) bool) {
@@ -92,7 +112,7 @@ func (e *Engine) RemoveConsumer(addr string) {
 			}
 			e.consumers[i].Addr = ""
 			e.consumers[i].Conn = nil
-			e.logger.Info(fmt.Sprintf("<%s:%s> removed", proto.ConsumerLinkType, addr))
+			e.Logger().Info(fmt.Sprintf("<%s:%s> removed", proto.ConsumerLinkType, addr))
 			break
 		}
 	}
@@ -111,7 +131,7 @@ func (e *Engine) RemoveProducer(addr string) {
 		if producer.Addr == addr {
 			e.producers[i].Addr = ""
 			e.producers[i].Conn = nil
-			e.logger.Info(fmt.Sprintf("<%s:%s> removed", proto.ProducerLinkType, addr))
+			e.Logger().Info(fmt.Sprintf("<%s:%s> removed", proto.ProducerLinkType, addr))
 			break
 		}
 	}
@@ -167,7 +187,7 @@ func (e *Engine) Distribute(frame *proto.TransferFrame, r *tcp.Remote) {
 	_, err = r.Write(_bytes)
 	err = r.Drain()
 	if err != nil {
-		e.logger.Warn(fmt.Sprintf(
+		e.Logger().Warn(fmt.Sprintf(
 			"send <message:%d> to '%s' failed: %s", frame.Type, r.Addr(), err,
 		))
 		return
@@ -182,7 +202,7 @@ func (e *Engine) HandleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remote
 		return false, fmt.Errorf("register message parse failed, %v", err)
 	}
 
-	e.logger.Debug(fmt.Sprintf("receive '%s' from  %s", rgm, r.Addr()))
+	e.Logger().Debug(fmt.Sprintf("receive '%s' from  %s", rgm, r.Addr()))
 
 	switch rgm.Type {
 	case proto.ProducerLinkType: // 注册生产者
@@ -226,7 +246,7 @@ func (e *Engine) HandleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remote
 		return false, fmt.Errorf("register response message build failed: %v", err)
 	}
 
-	e.logger.Info(fmt.Sprintf("<%s:%s> registered", rgm.Type, r.Addr()))
+	e.Logger().Info(fmt.Sprintf("<%s:%s> registered", rgm.Type, r.Addr()))
 	return true, nil
 }
 
@@ -235,7 +255,7 @@ func (e *Engine) HandleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remote
 func (e *Engine) HandleProductionMessage(frame *proto.TransferFrame, r *tcp.Remote) (bool, error) {
 	if !e.IsProducerRegister(r.Addr()) {
 		// 返回令客户端重新注册命令
-		e.logger.Debug("found unregister producer, let re-register: ", r.Addr())
+		e.Logger().Debug("found unregister producer, let re-register: ", r.Addr())
 		e.LetReRegister(r)
 		return false, proto.ErrProducerNotRegister
 	}
@@ -274,7 +294,7 @@ func (e *Engine) HandleProductionMessage(frame *proto.TransferFrame, r *tcp.Remo
 		}
 		_bytes, err2 := resp.Build()
 		if err2 != nil {
-			e.logger.Warn("response build failed: ", err2)
+			e.Logger().Warn("response build failed: ", err2)
 			return false, fmt.Errorf("response build failed: %v", err2)
 		}
 		frame.Type = proto.MessageRespType
@@ -295,7 +315,7 @@ func (e *Engine) LetReRegister(r *tcp.Remote) {
 	// 重新发起注册暂无消息体
 	_bytes, err := frame.BuildWith(proto.ReRegisterMessageType, []byte{})
 	if err != nil {
-		e.logger.Warn("make re-register failed: ", err)
+		e.Logger().Warn("make re-register failed: ", err)
 	} else {
 		_, _ = r.Write(_bytes)
 		_ = r.Drain()
@@ -304,10 +324,13 @@ func (e *Engine) LetReRegister(r *tcp.Remote) {
 
 // Run 阻塞运行
 func (e *Engine) Run() {
+	// 修改全局加解密器
+	proto.SetGlobalCrypto(e.conf.Crypto)
+
 	go func() {
 		err := e.transfer.Start()
 		if err != nil {
-			e.logger.Error("server starts failed: ", err)
+			e.Logger().Error("server starts failed: ", err)
 			os.Exit(1)
 		}
 	}()
@@ -321,53 +344,37 @@ func (e *Engine) Run() {
 }
 
 // New 创建一个新的服务器
-func New(c ...Config) *Engine {
-	var d Config
-
-	if len(c) > 0 {
-		d = c[0]
-	} else {
-		d = Config{
-			Host:        "127.0.0.1",
-			Port:        "7270",
-			MaxOpenConn: 50,
-			BufferSize:  200,
-			Logger:      logger.NewDefaultLogger(),
-		}
+func New(cs ...Config) *Engine {
+	conf := &Config{
+		Host:        "127.0.0.1",
+		Port:        "7270",
+		MaxOpenConn: 50,
+		BufferSize:  200,
+	}
+	if len(cs) > 0 {
+		conf.Host = cs[0].Host
+		conf.Port = cs[0].Port
+		conf.MaxOpenConn = cs[0].MaxOpenConn
+		conf.BufferSize = cs[0].BufferSize
+		conf.Logger = cs[0].Logger
+		conf.Crypto = cs[0].Crypto
 	}
 
-	if d.BufferSize == 0 {
-		d.BufferSize = 100
-	}
-	if d.Logger == nil {
-		d.Logger = logger.NewDefaultLogger()
-	}
-
-	if !(d.MaxOpenConn > 0 && d.MaxOpenConn <= 100) {
-		d.MaxOpenConn = 50
-	}
+	conf.Clean()
+	// 修改全局加解密器
+	proto.SetGlobalCrypto(conf.Crypto)
 
 	eng := &Engine{
-		conf: &Config{
-			Host:        d.Host,
-			Port:        d.Port,
-			MaxOpenConn: d.MaxOpenConn,
-			BufferSize:  d.BufferSize,
-			Logger:      d.Logger,
-		},
-		producers:            make([]*Producer, d.MaxOpenConn), // 初始化全部内存对象
-		consumers:            make([]*Consumer, d.MaxOpenConn),
+		conf:                 conf,
+		producers:            make([]*Producer, conf.MaxOpenConn), // 初始化全部内存对象
+		consumers:            make([]*Consumer, conf.MaxOpenConn),
 		topics:               &sync.Map{},
 		transfer:             nil,
-		logger:               d.Logger,
 		producerSendInterval: 500 * time.Millisecond,
 		cpLock:               &sync.RWMutex{},
 	}
 
-	eng.transfer = &Transfer{
-		logger: d.Logger,
-		mq:     eng,
-	}
+	eng.transfer = &Transfer{logger: conf.Logger, mq: eng}
 	eng.transfer.SetEngine(eng)
 
 	return eng
