@@ -17,6 +17,7 @@ const (
 	DefaultProducerSendInterval = 500 * time.Millisecond
 )
 
+//goland:noinspection GoUnusedGlobalVariable
 const (
 	AllConfirm    = proto.AllConfirm
 	NoConfirm     = proto.NoConfirm
@@ -25,3 +26,8 @@ const (
 
 type ConsumerMessage = proto.ConsumerMessage
 type ProducerMessage = proto.ProducerMessage
+
+type Queue = proto.Queue
+
+//goland:noinspection GoUnusedGlobalVariable
+var NewQueue = proto.NewQueue

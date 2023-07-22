@@ -27,7 +27,6 @@ type Producer struct {
 	regFrameBytes []byte       // 注册消息帧字节流
 	queue         chan *proto.ProducerMessage
 	tickInterval  time.Duration
-	logger        logger.Iface
 	ctx           context.Context
 	cancel        context.CancelFunc
 	handler       ProducerHandler
@@ -66,8 +65,10 @@ func (p *Producer) IsRegistered() bool { return p.isRegister.Load() }
 
 func (p *Producer) Done() <-chan struct{} { return p.ctx.Done() }
 
+func (p *Producer) Logger() logger.Iface { return p.conf.Logger }
+
 func (p *Producer) OnAccepted(r *tcp.Remote) error {
-	p.logger.Info("producer connected, send register message...")
+	p.Logger().Info("producer connected, send register message...")
 
 	p.isConnected.Store(true)
 	return p.ReRegister(r)
@@ -81,7 +82,7 @@ func (p *Producer) ReRegister(r *tcp.Remote) error {
 }
 
 func (p *Producer) OnClosed(_ *tcp.Remote) error {
-	p.logger.Info("producer connection lost, reconnect...")
+	p.Logger().Info("producer connection lost, reconnect...")
 
 	p.isConnected.Store(false)
 	p.isRegister.Store(false)
@@ -109,7 +110,7 @@ func (p *Producer) Handler(r *tcp.Remote) error {
 		p.handler.OnRegistered()
 
 	case proto.ReRegisterMessageType:
-		p.logger.Debug("sever let re-register")
+		p.Logger().Debug("sever let re-register")
 		p.handler.OnRegisterExpire()
 		return p.ReRegister(r)
 
@@ -193,7 +194,7 @@ func (p *Producer) sendToServer() {
 				_, err2 := p.link.client.Write(_bytes)
 				err2 = p.link.client.Drain()
 				if err2 != nil {
-					p.logger.Warn("send message to server failed: ", err2)
+					p.Logger().Warn("send message to server failed: ", err2)
 				}
 			}()
 		}
@@ -256,7 +257,6 @@ func NewProducer(conf Config, handlers ...ProducerHandler) *Producer {
 		isConnected:  &atomic.Bool{},
 		isRegister:   &atomic.Bool{},
 		queue:        make(chan *proto.ProducerMessage, 10),
-		logger:       conf.Logger,
 		tickInterval: DefaultProducerSendInterval, // 此值由服务更改
 	}
 	p.ctx, p.cancel = context.WithCancel(p.conf.Ctx)
