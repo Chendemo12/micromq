@@ -2,11 +2,13 @@ package sdk
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/Chendemo12/fastapi-tool/helper"
 	"github.com/Chendemo12/functools/logger"
 	"github.com/Chendemo12/functools/tcp"
 	"github.com/Chendemo12/synshare-mq/src/proto"
+	"io"
 	"sync/atomic"
 	"time"
 )
@@ -51,105 +53,6 @@ func (p *Producer) tick() {
 			p.dingDong <- struct{}{} // 发送信号
 		}
 	}
-}
-
-// 修改滴答周期, 此周期由服务端修改
-func (p *Producer) modifyTick(interval time.Duration) {
-	if interval < time.Second*10 && interval > time.Millisecond*100 {
-		p.tickInterval = interval
-	}
-}
-
-func (p *Producer) IsConnected() bool  { return p.isConnected.Load() }
-func (p *Producer) IsRegistered() bool { return p.isRegister.Load() }
-
-func (p *Producer) Done() <-chan struct{} { return p.ctx.Done() }
-
-func (p *Producer) Logger() logger.Iface { return p.conf.Logger }
-
-func (p *Producer) OnAccepted(r *tcp.Remote) error {
-	p.Logger().Info("producer connected, send register message...")
-
-	p.isConnected.Store(true)
-	return p.ReRegister(r)
-}
-
-// ReRegister 服务器令客户端重新发起注册流程
-func (p *Producer) ReRegister(r *tcp.Remote) error {
-	p.isRegister.Store(true)
-	_, _ = r.Write(p.regFrameBytes)
-	return r.Drain()
-}
-
-func (p *Producer) OnClosed(_ *tcp.Remote) error {
-	p.Logger().Info("producer connection lost, reconnect...")
-
-	p.isConnected.Store(false)
-	p.isRegister.Store(false)
-	p.handler.OnClose()
-
-	return nil
-}
-
-func (p *Producer) Handler(r *tcp.Remote) error {
-	if r.Len() < proto.FrameMinLength {
-		return proto.ErrMessageNotFull
-	}
-
-	frame := framePool.Get()
-	defer framePool.Put(frame)
-
-	err := frame.ParseFrom(r)
-	if err != nil {
-		return fmt.Errorf("producer parse frame failed: %v", err)
-	}
-
-	switch frame.Type {
-	case proto.RegisterMessageRespType:
-		p.isRegister.Store(true)
-		p.handler.OnRegistered()
-
-	case proto.ReRegisterMessageType:
-		p.Logger().Debug("sever let re-register")
-		p.handler.OnRegisterExpire()
-		return p.ReRegister(r)
-
-	case proto.MessageRespType:
-		p.receiveFin()
-	}
-
-	return nil
-}
-
-// NewRecord 从池中初始化一个新的消息记录
-func (p *Producer) NewRecord() *proto.ProducerMessage {
-	return mPool.GetPM()
-}
-
-// PutRecord 主动归还消息记录到池，仅在主动调用 NewRecord 却没发送数据时使用
-func (p *Producer) PutRecord(msg *proto.ProducerMessage) {
-	mPool.PutPM(msg)
-}
-
-// Publisher 发送消息
-func (p *Producer) Publisher(msg *proto.ProducerMessage) error {
-	if msg.Topic == "" {
-		p.PutRecord(msg)
-		return ErrTopicEmpty
-	}
-	p.queue <- msg
-	return nil
-}
-
-// Send 发送一条消息
-func (p *Producer) Send(fn func(record *proto.ProducerMessage) error) error {
-	msg := p.NewRecord()
-	err := fn(msg)
-	if err != nil {
-		p.PutRecord(msg)
-		return err
-	}
-	return p.Publisher(msg)
 }
 
 func (p *Producer) sendToServer() {
@@ -199,6 +102,115 @@ func (p *Producer) sendToServer() {
 			}()
 		}
 	}
+}
+
+// 修改滴答周期, 此周期由服务端修改
+func (p *Producer) modifyTick(interval time.Duration) {
+	if interval < time.Second*10 && interval > time.Millisecond*100 {
+		p.tickInterval = interval
+	}
+}
+
+func (p *Producer) handleRegisterMessage(frame *proto.TransferFrame) {
+	defer framePool.Put(frame)
+
+	// TODO: 后期应处理注册响应
+	p.isRegister.Store(true)
+	p.Logger().Info("producer register successfully")
+}
+
+func (p *Producer) IsConnected() bool  { return p.isConnected.Load() }
+func (p *Producer) IsRegistered() bool { return p.isRegister.Load() }
+
+func (p *Producer) Done() <-chan struct{} { return p.ctx.Done() }
+
+func (p *Producer) Logger() logger.Iface { return p.conf.Logger }
+
+func (p *Producer) OnAccepted(r *tcp.Remote) error {
+	p.Logger().Info("producer connected, send register message...")
+
+	p.isConnected.Store(true)
+	return p.ReRegister(r)
+}
+
+// ReRegister 服务器令客户端重新发起注册流程
+func (p *Producer) ReRegister(r *tcp.Remote) error {
+	p.isRegister.Store(true)
+	_, _ = r.Write(p.regFrameBytes)
+	return r.Drain()
+}
+
+func (p *Producer) OnClosed(_ *tcp.Remote) error {
+	p.Logger().Info("producer connection lost, reconnect...")
+
+	p.isConnected.Store(false)
+	p.isRegister.Store(false)
+	p.handler.OnClose()
+
+	return nil
+}
+
+func (p *Producer) Handler(r *tcp.Remote) error {
+	if r.Len() < proto.FrameMinLength {
+		return proto.ErrMessageNotFull
+	}
+
+	frame := framePool.Get()
+	defer framePool.Put(frame)
+
+	err := frame.ParseFrom(r)
+	if err != nil {
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		return fmt.Errorf("producer parse frame failed: %v", err)
+	}
+
+	switch frame.Type {
+	case proto.RegisterMessageRespType:
+		p.handleRegisterMessage(frame)
+
+	case proto.ReRegisterMessageType:
+		p.Logger().Debug("sever let re-register")
+		p.handler.OnRegisterExpire()
+		return p.ReRegister(r)
+
+	case proto.MessageRespType:
+		p.receiveFin()
+	}
+
+	return nil
+}
+
+// NewRecord 从池中初始化一个新的消息记录
+func (p *Producer) NewRecord() *proto.ProducerMessage {
+	return mPool.GetPM()
+}
+
+// PutRecord 主动归还消息记录到池，仅在主动调用 NewRecord 却没发送数据时使用
+func (p *Producer) PutRecord(msg *proto.ProducerMessage) {
+	mPool.PutPM(msg)
+}
+
+// Publisher 发送消息
+func (p *Producer) Publisher(msg *proto.ProducerMessage) error {
+	if msg.Topic == "" {
+		p.PutRecord(msg)
+		return ErrTopicEmpty
+	}
+	p.queue <- msg
+	return nil
+}
+
+// Send 发送一条消息
+func (p *Producer) Send(fn func(record *proto.ProducerMessage) error) error {
+	msg := p.NewRecord()
+	err := fn(msg)
+	if err != nil {
+		p.PutRecord(msg)
+		return err
+	}
+	return p.Publisher(msg)
 }
 
 func (p *Producer) Start() error {

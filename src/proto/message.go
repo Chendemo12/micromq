@@ -99,36 +99,39 @@ func (m *PMessage) ParseFrom(reader io.Reader) error {
 	defer bcPool.Put(bc)
 
 	// topicLength , topic
-	i, err := reader.Read(bc.oneByte)
-	if err != nil {
-		return fmt.Errorf("topic did not read: %v", err)
+	bc.i, bc.err = reader.Read(bc.oneByte)
+	if bc.err != nil {
+		return fmt.Errorf("topic did not read: %v", bc.err)
 	}
-	m.Topic = make([]byte, i)
-	i, err = reader.Read(m.Topic)
-	if err != nil {
-		return fmt.Errorf("topic did not read: %v", err)
+
+	m.Topic = make([]byte, bc.OneValue())
+	bc.i, bc.err = reader.Read(m.Topic)
+	if bc.err != nil {
+		return fmt.Errorf("topic did not read: %v", bc.err)
 	}
 
 	// keyLength , key
-	i, err = reader.Read(bc.oneByte)
-	if err != nil {
-		return fmt.Errorf("key did not read: %v", err)
+	bc.i, bc.err = reader.Read(bc.oneByte)
+	if bc.err != nil {
+		return fmt.Errorf("key did not read: %v", bc.err)
 	}
-	m.Key = make([]byte, i)
-	i, err = reader.Read(m.Key)
-	if err != nil {
-		return fmt.Errorf("key did not read: %v", err)
+
+	m.Key = make([]byte, bc.OneValue())
+	bc.i, bc.err = reader.Read(m.Key)
+	if bc.err != nil {
+		return fmt.Errorf("key did not read: %v", bc.err)
 	}
 
 	// valueLength , value
-	i, err = reader.Read(bc.twoByte)
-	if err != nil {
-		return fmt.Errorf("value did not read: %v", err)
+	bc.i, bc.err = reader.Read(bc.twoByte)
+	if bc.err != nil {
+		return fmt.Errorf("value did not read: %v", bc.err)
 	}
-	m.Value = make([]byte, i)
-	i, err = reader.Read(m.Value)
-	if err != nil {
-		return fmt.Errorf("key did not read: %v", err)
+
+	m.Value = make([]byte, bc.TwoValue())
+	bc.i, bc.err = reader.Read(m.Value)
+	if bc.err != nil {
+		return fmt.Errorf("key did not read: %v", bc.err)
 	}
 
 	return nil

@@ -74,6 +74,7 @@ func (t *Topic) consume() {
 			if !ok {
 				return true
 			}
+
 			go func() {
 				_, _ = cons.Conn.Write(_bytes)
 				_ = cons.Conn.Drain()

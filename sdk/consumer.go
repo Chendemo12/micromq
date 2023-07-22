@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/Chendemo12/fastapi-tool/helper"
+	"github.com/Chendemo12/functools/logger"
 	"github.com/Chendemo12/functools/python"
 	"github.com/Chendemo12/functools/tcp"
 	"github.com/Chendemo12/synshare-mq/src/proto"
@@ -28,6 +29,64 @@ type Consumer struct {
 	frameBytes  []byte
 	mu          *sync.Mutex
 }
+
+// 将消息帧转换为消费者消息，中间经过了一个协议转换
+func (c *Consumer) toCMessage(frame *proto.TransferFrame) ([]*proto.ConsumerMessage, error) {
+
+	var err error
+	cms := make([]*proto.ConsumerMessage, 0)
+	reader := bytes.NewReader(frame.Data)
+
+	for err == nil && reader.Len() > 0 {
+		ecm := emPool.GetCM()
+		err = ecm.ParseFrom(reader)
+		if err == nil {
+			cm := mPool.GetCM()
+			cm.ParseFromCMessage(ecm)
+
+			cms = append(cms, cm)
+		}
+
+		emPool.PutCM(ecm)
+	}
+
+	return cms, err
+}
+
+func (c *Consumer) handleMessage(frame *proto.TransferFrame) {
+	defer framePool.Put(frame)
+
+	// 转换消息格式
+	cms, err := c.toCMessage(frame)
+	if err != nil {
+		// 记录日志
+		c.Logger().Warn(fmt.Sprintf("%s parse failed: %s", frame, err))
+		return
+	}
+
+	for _, cm := range cms {
+		msg := cm
+		go func() {
+			if c.isRegister.Load() && python.Has[string](c.handler.Topics(), msg.Topic) {
+				c.handler.Handler(msg)
+			} else {
+				// 出现脏数据
+				return
+			}
+			defer mPool.PutCM(msg)
+		}()
+	}
+}
+
+func (c *Consumer) handleRegisterMessage(frame *proto.TransferFrame) {
+	defer framePool.Put(frame)
+
+	// TODO: 后期应处理注册响应
+	c.isRegister.Store(true)
+	c.Logger().Info("consumer register successfully")
+}
+
+func (c *Consumer) Logger() logger.Iface { return c.conf.Logger }
 
 // HandlerFunc 获取注册的消息处理方法
 func (c *Consumer) HandlerFunc() ConsumerHandler { return c.handler }
@@ -70,64 +129,17 @@ func (c *Consumer) Handler(r *tcp.Remote) error {
 
 	switch frame.Type {
 	case proto.RegisterMessageRespType:
-		c.isRegister.Store(true)
-		framePool.Put(frame)
+		c.handleRegisterMessage(frame)
 
 	case proto.ReRegisterMessageType:
 		c.isRegister.Store(false)
+		framePool.Put(frame)
 		return c.ReRegister(r)
 
 	case proto.CMessageType:
 		go c.handleMessage(frame)
 	}
 	return nil
-}
-
-// 将消息帧转换为消费者消息，中间经过了一个协议转换
-func (c *Consumer) toCMessage(frame *proto.TransferFrame) ([]*proto.ConsumerMessage, error) {
-
-	var err error
-	cms := make([]*proto.ConsumerMessage, 0)
-	reader := bytes.NewReader(frame.Data)
-
-	for err == nil && reader.Len() > 0 {
-		ecm := emPool.GetCM()
-		err = ecm.ParseFrom(reader)
-		if err == nil {
-			cm := mPool.GetCM()
-			cm.ParseFromCMessage(ecm)
-
-			cms = append(cms, cm)
-		}
-
-		emPool.PutCM(ecm)
-	}
-
-	return cms, err
-}
-
-func (c *Consumer) handleMessage(frame *proto.TransferFrame) {
-	defer framePool.Put(frame)
-
-	// 转换消息格式
-	cms, err := c.toCMessage(frame)
-	if err != nil {
-		// 后期应增加日志记录
-		return
-	}
-
-	for _, cm := range cms {
-		msg := cm
-		go func() {
-			if c.isRegister.Load() && python.Has[string](c.handler.Topics(), msg.Topic) {
-				c.handler.Handler(msg)
-			} else {
-				// 出现脏数据
-				return
-			}
-			defer mPool.PutCM(msg)
-		}()
-	}
 }
 
 // IsConnected 与服务器是否连接成功
@@ -176,8 +188,6 @@ func NewConsumer(conf Config, handler ConsumerHandler) (*Consumer, error) {
 	c.Clean()
 
 	frame := framePool.Get()
-	defer framePool.Put(frame)
-
 	reporter := &proto.RegisterMessage{
 		Topics: handler.Topics(),
 		Ack:    proto.AllConfirm,
@@ -185,13 +195,14 @@ func NewConsumer(conf Config, handler ConsumerHandler) (*Consumer, error) {
 	}
 
 	_bytes, err := frame.BuildFrom(reporter)
+	framePool.Put(frame)
+
 	if err != nil {
 		return nil, err
 	}
 
 	con := &Consumer{
-		conf:    c,
-		handler: handler,
+		conf: c,
 		link: &Link{
 			Host:    c.Host,
 			Port:    c.Port,
@@ -199,6 +210,10 @@ func NewConsumer(conf Config, handler ConsumerHandler) (*Consumer, error) {
 			handler: nil,
 			logger:  c.Logger,
 		},
+		handler:     handler,
+		isConnected: &atomic.Bool{},
+		isRegister:  &atomic.Bool{},
+		mu:          &sync.Mutex{},
 	}
 
 	con.frameBytes = _bytes

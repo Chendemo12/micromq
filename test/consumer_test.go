@@ -2,7 +2,7 @@ package test
 
 import (
 	"context"
-	"github.com/Chendemo12/fastapi-tool/logger"
+	"fmt"
 	"github.com/Chendemo12/synshare-mq/sdk"
 	"github.com/Chendemo12/synshare-mq/src/proto"
 	"testing"
@@ -14,25 +14,25 @@ type DnsConsumer struct {
 	Port   string `json:"port"`
 	topics []string
 	ctx    context.Context
-	logger logger.Iface
+	t      *testing.T
 	c      *sdk.Consumer
 }
 
 func (c *DnsConsumer) Topics() []string { return c.topics }
 
 func (c *DnsConsumer) Handler(record *proto.ConsumerMessage) {
-	dns := &DnsReport{}
+	dns := &DnsForm{}
 	_ = record.ShouldBindJSON(dns)
-	c.logger.Debug("receive message from: (%s-%s)", record.Topic, record.Key)
-	c.logger.Debug("receive dns update: %s -> %s", dns.Domain, dns.IP)
+	fmt.Printf("receive message from: (%s-%s)\n", record.Topic, record.Key)
+	fmt.Printf("receive dns update: %s -> %s\n", dns.Domain, dns.IP)
 }
 
 func (c *DnsConsumer) OnConnected() {
-	c.logger.Info("consumer connected.")
+	c.t.Logf("consumer connected.")
 }
 
 func (c *DnsConsumer) OnClosed() {
-	c.logger.Info("connection closed, retry...")
+	c.t.Logf("connection closed, retry...")
 }
 
 func (c *DnsConsumer) Start() error {
@@ -50,7 +50,7 @@ func (c *DnsConsumer) Start() error {
 	return nil
 }
 
-func TestConsumer(t *testing.T) {
+func TestSdkConsumer(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
 
 	consumer := &DnsConsumer{
@@ -58,7 +58,7 @@ func TestConsumer(t *testing.T) {
 		Port:   "7270",
 		topics: []string{"DNS_REPORT", "DNS_UPDATE"},
 		ctx:    ctx,
-		logger: logger.NewDefaultLogger(),
+		t:      t,
 	}
 
 	err := consumer.Start()

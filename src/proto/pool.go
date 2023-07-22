@@ -1,6 +1,9 @@
 package proto
 
-import "sync"
+import (
+	"encoding/binary"
+	"sync"
+)
 
 func NewFramePool() *FramePool {
 	p := &FramePool{pool: &sync.Pool{}, counter: NewCounter()}
@@ -137,10 +140,11 @@ func (m *HCPMessagePool) PutPM(v *ProducerMessage) {
 // -------------------------------------------------------------------
 
 type bytesCache struct {
-	i       int
-	err     error
-	oneByte []byte
-	twoByte []byte
+	i         int // 一个临时标号
+	err       error
+	oneByte   []byte
+	twoByte   []byte
+	byteOrder string
 }
 
 func (m *bytesCache) Reset() {
@@ -148,6 +152,15 @@ func (m *bytesCache) Reset() {
 	m.twoByte = make([]byte, 2)
 	m.i = 0
 	m.err = nil
+}
+
+func (m *bytesCache) OneValue() int { return int(m.oneByte[0]) }
+
+func (m *bytesCache) TwoValue() int {
+	if m.byteOrder == "little" { // 显式设置为小端解析
+		return int(binary.LittleEndian.Uint16(m.twoByte))
+	}
+	return int(binary.BigEndian.Uint16(m.twoByte))
 }
 
 type bytesCachePool struct {
