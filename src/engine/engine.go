@@ -79,14 +79,40 @@ func (e *Engine) RemoveConsumer(addr string) {
 	e.cpLock.Lock()
 	defer e.cpLock.Unlock()
 
-	for _, consumer := range e.consumers {
-		if consumer == nil || consumer.Conn == nil {
+	for i := 0; i < len(e.consumers); i++ {
+		consumer := e.consumers[i]
+		if consumer == nil || consumer.Addr == "" {
 			continue
 		}
+
 		if consumer.Addr == addr {
 			for _, name := range consumer.Conf.Topics {
+				// 从相关 topic 中删除消费者记录
 				e.GetTopic([]byte(name)).RemoveConsumer(addr)
 			}
+			e.consumers[i].Addr = ""
+			e.consumers[i].Conn = nil
+			e.logger.Info(fmt.Sprintf("<%s:%s> removed", proto.ConsumerLinkType, addr))
+			break
+		}
+	}
+}
+
+func (e *Engine) RemoveProducer(addr string) {
+	e.cpLock.Lock()
+	defer e.cpLock.Unlock()
+
+	for i := 0; i < len(e.producers); i++ {
+		producer := e.producers[i]
+		if producer == nil || producer.Addr == "" {
+			continue
+		}
+
+		if producer.Addr == addr {
+			e.producers[i].Addr = ""
+			e.producers[i].Conn = nil
+			e.logger.Info(fmt.Sprintf("<%s:%s> removed", proto.ProducerLinkType, addr))
+			break
 		}
 	}
 }
@@ -119,13 +145,13 @@ func (e *Engine) Distribute(frame *proto.TransferFrame, r *tcp.Remote) {
 	var needResp bool
 
 	switch frame.Type {
-	case proto.PMessageType: // 生产消息
-		// 内部会就地修改 frame
-		needResp, err = e.HandleProductionMessage(frame, r)
-
 	case proto.RegisterMessageType: // 注册消费者
 		// 内部会就地修改 frame
 		needResp, err = e.HandleRegisterMessage(frame, r)
+
+	case proto.PMessageType: // 生产消息
+		// 内部会就地修改 frame
+		needResp, err = e.HandleProductionMessage(frame, r)
 	}
 
 	// 错误，或不需要回写返回值
@@ -156,7 +182,7 @@ func (e *Engine) HandleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remote
 		return false, fmt.Errorf("register message parse failed, %v", err)
 	}
 
-	e.logger.Info(fmt.Sprintf("receive '%s' from  %s", rgm, r.Addr()))
+	e.logger.Debug(fmt.Sprintf("receive '%s' from  %s", rgm, r.Addr()))
 
 	switch rgm.Type {
 	case proto.ProducerLinkType: // 注册生产者
@@ -200,6 +226,7 @@ func (e *Engine) HandleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remote
 		return false, fmt.Errorf("register response message build failed: %v", err)
 	}
 
+	e.logger.Info(fmt.Sprintf("<%s:%s> registered", rgm.Type, r.Addr()))
 	return true, nil
 }
 
@@ -328,8 +355,8 @@ func New(c ...Config) *Engine {
 			BufferSize:  d.BufferSize,
 			Logger:      d.Logger,
 		},
-		producers:            make([]*Producer, 0, d.MaxOpenConn),
-		consumers:            make([]*Consumer, 0, d.MaxOpenConn),
+		producers:            make([]*Producer, d.MaxOpenConn), // 初始化全部内存对象
+		consumers:            make([]*Consumer, d.MaxOpenConn),
 		topics:               &sync.Map{},
 		transfer:             nil,
 		logger:               d.Logger,
@@ -341,7 +368,7 @@ func New(c ...Config) *Engine {
 		logger: d.Logger,
 		mq:     eng,
 	}
-	eng.transfer.SetEngine(eng).init()
+	eng.transfer.SetEngine(eng)
 
 	return eng
 }

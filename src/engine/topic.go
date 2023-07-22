@@ -44,10 +44,42 @@ func (t *Topic) msgMove() {
 	for {
 		t.publisherEvent.Wait()
 
-		msg := t.publisherQueue.Front()
+		msg := t.publisherQueue.PopLeft()
 		if msg != nil {
 			t.consumerQueue <- msg.(*proto.CMessage)
 		}
+	}
+}
+
+// 向消费者发送消息帧
+// TODO: 实现多个消息压缩为帧
+func (t *Topic) consume() {
+	var _bytes []byte
+	var err error
+
+	for msg := range t.consumerQueue {
+		frame := framePool.Get()
+		_bytes, err = frame.BuildFrom(msg)
+
+		framePool.Put(frame)
+		mp.PutCM(msg)
+		mp.PutPM(msg.PM)
+
+		if err != nil {
+			continue
+		}
+
+		t.consumers.Range(func(key, value any) bool {
+			cons, ok := value.(*Consumer)
+			if !ok {
+				return true
+			}
+			go func() {
+				_, _ = cons.Conn.Write(_bytes)
+				_ = cons.Conn.Drain()
+			}()
+			return true
+		})
 	}
 }
 
@@ -86,39 +118,6 @@ func (t *Topic) Publisher(pm *proto.PMessage) uint64 {
 	return offset
 }
 
-// Consume 向消费者发送消息帧
-// TODO: 实现多个消息压缩为帧
-func (t *Topic) Consume() {
-	var _bytes []byte
-	var err error
-
-	for msg := range t.consumerQueue {
-		frame := framePool.Get()
-		_bytes, err = frame.BuildFrom(msg)
-
-		framePool.Put(frame)
-		mp.PutCM(msg)
-		mp.PutPM(msg.PM)
-
-		if err != nil {
-			continue
-		}
-
-		t.consumers.Range(func(key, value any) bool {
-			cons, ok := value.(*Consumer)
-			if !ok {
-				return true
-			}
-			go func() {
-				// TODO: tcp.Remote 实现 WriteFrom(reader io.Reader) 方法
-				_, _ = cons.Conn.Write(_bytes)
-				_ = cons.Conn.Drain()
-			}()
-			return true
-		})
-	}
-}
-
 func NewTopic(name []byte, bufferSize int) *Topic {
 	t := &Topic{
 		Name:           name,
@@ -132,7 +131,7 @@ func NewTopic(name []byte, bufferSize int) *Topic {
 		mu:             &sync.Mutex{},
 	}
 	go t.msgMove()
-	go t.Consume()
+	go t.consume()
 
 	return t
 }

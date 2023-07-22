@@ -130,8 +130,6 @@ func (q *Queue) Capacity() int { return q.capacity }
 
 func (q *Queue) Length() int { return q.list.Len() }
 
-func (q *Queue) Front() any { return q.list.Front() }
-
 func (q *Queue) Append(value any) {
 	q.mu.Lock()
 	defer q.mu.Unlock()
