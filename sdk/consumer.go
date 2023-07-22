@@ -173,6 +173,7 @@ func NewConsumer(conf Config, handler ConsumerHandler) (*Consumer, error) {
 		Ctx:    conf.Ctx,
 		Logger: conf.Logger,
 	}
+	c.Clean()
 
 	frame := framePool.Get()
 	defer framePool.Put(frame)
@@ -189,13 +190,14 @@ func NewConsumer(conf Config, handler ConsumerHandler) (*Consumer, error) {
 	}
 
 	con := &Consumer{
-		conf:    c.Clean(),
+		conf:    c,
 		handler: handler,
 		link: &Link{
 			Host:    c.Host,
 			Port:    c.Port,
 			Kind:    proto.ConsumerLinkType,
 			handler: nil,
+			logger:  c.Logger,
 		},
 	}
 

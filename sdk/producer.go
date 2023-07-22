@@ -266,6 +266,7 @@ func NewProducer(conf Config, handlers ...ProducerHandler) *Producer {
 		Host:    c.Host,
 		Port:    c.Port,
 		Kind:    proto.ProducerLinkType,
+		logger:  c.Logger,
 		handler: p,
 	}
 

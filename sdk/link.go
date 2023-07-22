@@ -39,6 +39,7 @@ type Link struct {
 	Kind    proto.LinkType  `json:"kind"`
 	client  *tcp.Client     // 对端连接
 	handler tcp.HandlerFunc // 消息处理程序
+	logger  logger.Iface
 }
 
 func (l *Link) IsConsumer() bool { return l.Kind == proto.ConsumerLinkType }
@@ -47,7 +48,7 @@ func (l *Link) IsProducer() bool { return l.Kind == proto.ProducerLinkType }
 // Connect 阻塞式连接
 func (l *Link) Connect() error {
 	c := tcp.NewTcpClient(&tcp.TcpcConfig{
-		Logger:         nil,
+		Logger:         l.logger,
 		MessageHandler: l.handler,
 		Host:           l.Host,
 		Port:           l.Port,
