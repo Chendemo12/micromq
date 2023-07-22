@@ -2,12 +2,14 @@ package engine
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"github.com/Chendemo12/fastapi-tool/logger"
 	"github.com/Chendemo12/functools/tcp"
 	"github.com/Chendemo12/synshare-mq/src/proto"
 	"os"
 	"os/signal"
+	"reflect"
 	"sync"
 	"time"
 )
@@ -52,7 +54,7 @@ type Engine struct {
 	transfer             *Transfer
 	producerSendInterval time.Duration // 生产者发送消息的时间间隔 = 500ms
 	cpLock               *sync.RWMutex // consumer producer lock
-	hooks                [256]*Hook
+	hooks                [proto.TotalNumberOfMessages]*Hook
 }
 
 func (e *Engine) init() *Engine {
@@ -78,18 +80,24 @@ func (e *Engine) init() *Engine {
 		}
 	}
 
-	for i := 0; i < 256; i++ {
+	for i := 0; i < proto.TotalNumberOfMessages; i++ {
 		e.hooks[i] = &Hook{
-			Type:       nil,
-			Message:    nil,
-			Text:       "",
-			Fun:        nil,
-			UserDefine: true,
+			Type:    proto.NotImplementMessageType,
+			Handler: emptyHookHandler,
 		}
 	}
 
 	// 修改全局加解密器
 	proto.SetGlobalCrypto(e.conf.Crypto)
+
+	// 绑定处理器
+	// 注册消费者
+	e.hooks[proto.RegisterMessageType].Type = proto.RegisterMessageType
+	e.hooks[proto.RegisterMessageType].Handler = e.handleRegisterMessage
+
+	// 生产消息
+	e.hooks[proto.PMessageType].Type = proto.PMessageType
+	e.hooks[proto.PMessageType].Handler = e.handleProductionMessage
 
 	return e
 }
@@ -241,6 +249,21 @@ func (e *Engine) ProducerSendInterval() time.Duration {
 	return e.producerSendInterval
 }
 
+// LetReRegister 令客户端重新发起注册流程
+func (e *Engine) LetReRegister(r *tcp.Remote) {
+	frame := framePool.Get()
+	defer framePool.Put(frame)
+
+	// 重新发起注册暂无消息体
+	_bytes, err := frame.BuildWith(proto.ReRegisterMessageType, []byte{})
+	if err != nil {
+		e.Logger().Warn("make re-register failed: ", err)
+	} else {
+		_, _ = r.Write(_bytes)
+		_ = r.Drain()
+	}
+}
+
 // Distribute 分发消息
 func (e *Engine) Distribute(frame *proto.TransferFrame, r *tcp.Remote) {
 	defer framePool.Put(frame)
@@ -248,14 +271,11 @@ func (e *Engine) Distribute(frame *proto.TransferFrame, r *tcp.Remote) {
 	var err error
 	var needResp bool
 
-	switch frame.Type {
-	case proto.RegisterMessageType: // 注册消费者
-		// 内部会就地修改 frame
-		needResp, err = e.HandleRegisterMessage(frame, r)
-
-	case proto.PMessageType: // 生产消息
-		// 内部会就地修改 frame
-		needResp, err = e.HandleProductionMessage(frame, r)
+	if proto.Descriptors()[frame.Type] != nil {
+		needResp, err = e.hooks[frame.Type].Handler(frame, r)
+	} else {
+		// 此协议未注册, 通过事件回调处理
+		needResp, err = e.EventHandler().OnNotImplementMessageType(frame, r)
 	}
 
 	// 错误，或不需要回写返回值
@@ -278,8 +298,8 @@ func (e *Engine) Distribute(frame *proto.TransferFrame, r *tcp.Remote) {
 	}
 }
 
-// HandleRegisterMessage 处理注册消息, 内部无需返回消息,通过修改frame实现返回消息
-func (e *Engine) HandleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remote) (bool, error) {
+// 处理注册消息, 内部无需返回消息,通过修改frame实现返回消息
+func (e *Engine) handleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remote) (bool, error) {
 	msg, err := frame.ParseTo()
 	rgm, ok := msg.(*proto.RegisterMessage)
 	if err != nil || !ok {
@@ -309,6 +329,7 @@ func (e *Engine) HandleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remote
 		e.cpLock.Unlock()
 
 	case proto.ConsumerLinkType: // 注册消费者
+		e.cpLock.Lock()
 		e.RangeConsumer(func(c *Consumer) bool {
 			if c.Addr == "" {
 				c.Addr = r.Addr()
@@ -354,9 +375,9 @@ func (e *Engine) HandleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remote
 	return true, nil
 }
 
-// HandleProductionMessage 处理生产者消息帧，此处需要判断生产者是否已注册
+// 处理生产者消息帧，此处需要判断生产者是否已注册
 // 内部无需返回消息,通过修改frame实现返回消息
-func (e *Engine) HandleProductionMessage(frame *proto.TransferFrame, r *tcp.Remote) (bool, error) {
+func (e *Engine) handleProductionMessage(frame *proto.TransferFrame, r *tcp.Remote) (bool, error) {
 	if !e.IsProducerRegister(r.Addr()) {
 		// 返回令客户端重新注册命令
 		e.Logger().Debug("found unregister producer, let re-register: ", r.Addr())
@@ -411,18 +432,38 @@ func (e *Engine) HandleProductionMessage(frame *proto.TransferFrame, r *tcp.Remo
 	}
 }
 
-// LetReRegister 令客户端重新发起注册流程
-func (e *Engine) LetReRegister(r *tcp.Remote) {
-	frame := framePool.Get()
-	defer framePool.Put(frame)
-
-	// 重新发起注册暂无消息体
-	_bytes, err := frame.BuildWith(proto.ReRegisterMessageType, []byte{})
-	if err != nil {
-		e.Logger().Warn("make re-register failed: ", err)
+// BindMessageHandler 绑定一个自实现的协议处理器,
+//
+//	参数m为实现了 proto.Message 接口的协议,
+//
+//	参数handler则为收到此协议后的同步处理函数, 如果需要在处理完成之后向客户端返回消息,则直接就地修改frame参数,
+//		并返回 true 和 nil, 除此之外,则不会向客户端返回任何消息
+//		HookHandler 的第一个参数为接收到的消息帧,需自行解码, 第二个参数为当前的客户端连接,
+//		此方法需返回(是否返回数据,处理是否正确)两个参数.
+//
+//	参数texts则为协议m的摘要名称
+func (e *Engine) BindMessageHandler(m proto.Message, handler HookHandler, texts ...string) error {
+	text := ""
+	if len(texts) > 0 {
+		text = texts[0]
 	} else {
-		_, _ = r.Write(_bytes)
-		_ = r.Drain()
+		rt := reflect.TypeOf(m)
+		if rt.Kind() == reflect.Ptr {
+			rt = rt.Elem()
+		}
+		text = rt.Name()
+	}
+
+	// 添加到协议描述符表
+	if proto.GetDescriptor(m.MessageType()).UserDefined() {
+		proto.AddDescriptor(m, text)
+
+		e.hooks[m.MessageType()].Type = m.MessageType()
+		e.hooks[m.MessageType()].Handler = handler
+
+		return nil
+	} else {
+		return errors.New("built-in message type cannot be modified")
 	}
 }
 

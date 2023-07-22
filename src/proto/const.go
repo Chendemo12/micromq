@@ -3,6 +3,7 @@ package proto
 import "errors"
 
 const FrameMinLength int = 7
+const TotalNumberOfMessages int = 256
 
 type MessageType byte
 

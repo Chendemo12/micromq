@@ -1,13 +1,18 @@
 package engine
 
-import "github.com/Chendemo12/synshare-mq/src/proto"
+import (
+	"github.com/Chendemo12/functools/tcp"
+	"github.com/Chendemo12/synshare-mq/src/proto"
+)
+
+type HookHandler func(frame *proto.TransferFrame, r *tcp.Remote) (bool, error)
 
 type Hook struct {
-	Type       proto.Message
-	Message    proto.Message
-	Text       string
-	Fun        func(frame *proto.TransferFrame)
-	UserDefine bool
+	Type    proto.MessageType
+	Handler HookHandler
+	IsAsync bool
 }
 
-var routers = [256]*Hook{}
+func emptyHookHandler(_ *proto.TransferFrame, _ *tcp.Remote) (bool, error) {
+	return false, nil
+}

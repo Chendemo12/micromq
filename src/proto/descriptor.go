@@ -3,15 +3,28 @@ package proto
 // Descriptors 全局协议描述符
 func Descriptors() []*Descriptor { return descriptors }
 
+func GetDescriptor(code MessageType) *Descriptor { return descriptors[code] }
+
+// AddDescriptor 添加描述符号表, 对于已经实现的协议则不允许修改
+func AddDescriptor(m Message, text string) bool {
+	if descriptors[m.MessageType()].UserDefined() {
+		descriptors[m.MessageType()].code = m.MessageType()
+		descriptors[m.MessageType()].message = m
+		descriptors[m.MessageType()].text = text
+		return true
+	}
+	return false
+}
+
 type Descriptor struct {
-	kind        MessageType
+	code        MessageType
 	message     Message
 	text        string
 	userDefined bool
 }
 
 // MessageType 协议类别
-func (m Descriptor) MessageType() MessageType { return m.kind }
+func (m Descriptor) MessageType() MessageType { return m.code }
 
 // Message 协议定义,可能为nil
 func (m Descriptor) Message() Message { return m.message }
@@ -23,53 +36,59 @@ func (m Descriptor) Text() string { return m.text }
 func (m Descriptor) UserDefined() bool { return m.userDefined }
 
 //goland:noinspection GoUnusedGlobalVariable
-var descriptors = make([]*Descriptor, 256)
+var descriptors = make([]*Descriptor, TotalNumberOfMessages)
 
 func init() {
-	descriptors[NotImplementMessageType] = &Descriptor{
-		kind:        NotImplementMessageType,
-		message:     &NotImplementMessage{},
-		text:        "NotImplementMessage",
-		userDefined: false,
+	// 将所有协议全部初始化为 未实现的自定义协议
+	for i := 0; i < TotalNumberOfMessages; i++ {
+		descriptors[i] = &Descriptor{
+			code:        NotImplementMessageType,
+			message:     &NotImplementMessage{},
+			text:        "NotImplementMessage",
+			userDefined: true,
+		}
 	}
 
+	// 替换已经实现的协议
+	descriptors[NotImplementMessageType].userDefined = false // 此协议不允许自定义
+
 	descriptors[RegisterMessageType] = &Descriptor{
-		kind:        RegisterMessageType,
+		code:        RegisterMessageType,
 		message:     &RegisterMessage{},
 		text:        "RegisterMessage",
 		userDefined: false,
 	}
 
 	descriptors[RegisterMessageRespType] = &Descriptor{
-		kind:        RegisterMessageRespType,
+		code:        RegisterMessageRespType,
 		message:     &MessageResponse{Offset: 0}, // Offset == 0
 		text:        "RegisterMessageResponse",
 		userDefined: false,
 	}
 
 	descriptors[ReRegisterMessageType] = &Descriptor{
-		kind:        ReRegisterMessageType,
+		code:        ReRegisterMessageType,
 		message:     nil, // no payload
 		text:        "Re-RegisterMessage",
 		userDefined: false,
 	}
 
 	descriptors[MessageRespType] = &Descriptor{
-		kind:        MessageRespType,
+		code:        MessageRespType,
 		message:     &MessageResponse{Offset: 1}, // Offset != 0
 		text:        "MessageResponse",
 		userDefined: false,
 	}
 
 	descriptors[PMessageType] = &Descriptor{
-		kind:        PMessageType,
+		code:        PMessageType,
 		message:     &PMessage{},
 		text:        "ProducerMessage",
 		userDefined: false,
 	}
 
 	descriptors[CMessageType] = &Descriptor{
-		kind:        CMessageType,
+		code:        CMessageType,
 		message:     &CMessage{},
 		text:        "ConsumerMessage",
 		userDefined: false,

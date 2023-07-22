@@ -12,6 +12,7 @@ type EventHandler interface {
 	OnProducerRegister(addr string)
 	OnConsumerClosed(addr string)
 	OnProducerClosed(addr string)
+	OnNotImplementMessageType(frame *proto.TransferFrame, r *tcp.Remote) (bool, error)
 }
 
 type emptyEventHandler struct{}
@@ -22,3 +23,7 @@ func (e emptyEventHandler) OnConsumerRegister(_ string) {}
 func (e emptyEventHandler) OnProducerRegister(_ string) {}
 func (e emptyEventHandler) OnConsumerClosed(_ string)   {}
 func (e emptyEventHandler) OnProducerClosed(_ string)   {}
+
+func (e emptyEventHandler) OnNotImplementMessageType(frame *proto.TransferFrame, r *tcp.Remote) (bool, error) {
+	return emptyHookHandler(frame, r)
+}
