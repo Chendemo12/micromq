@@ -8,6 +8,15 @@ import (
 )
 
 // TransferFrame TCP传输协议帧, 可一次性传输多条消息
+//
+//	帧结构：
+//		|   Head   |   Type   |   DataSize   |        Data        |   Checksum   |   Tail   |
+//		|----------|----------|--------------|--------------------|--------------|----------|
+//	len	|    1     |    1     |       2      |  N [0-65526] bytes |       2      |     1    |
+//	   	|----------|----------|--------------|--------------------|--------------|----------|
+//	取值	|   0x3C   |          |              |                    |              |   0x0D   |
+//		|----------|----------|--------------|--------------------|--------------|----------|
+//
 // TODO: 实现 Reader 和 Writer 接口
 type TransferFrame struct {
 	counter  uint64      // 用以追踪此对象的实例是否由池创建
@@ -17,6 +26,14 @@ type TransferFrame struct {
 	Data     []byte      // 若干个消息
 	Checksum []byte      // Checksum 经典校验和算法,2个字节, Data 的校验和 TODO: 修改为[Type, Data] 的校验和
 	Tail     byte        // 恒为 FrameTail
+}
+
+func (f *TransferFrame) MarshalMethod() MarshalMethodType {
+	return BinaryMarshalMethod
+}
+
+func (f *TransferFrame) Parse(stream []byte) error {
+	return f.ParseFrom(bytes.NewReader(stream))
 }
 
 // ParseFrom 从流中解析数据帧
@@ -45,7 +62,7 @@ func (f *TransferFrame) ParseFrom(reader io.Reader) error {
 }
 
 // TransferFrame.Data 字节序列说明, 无作用
-type container struct {
+type _ struct {
 	pms []struct {
 		TopicLength byte
 		Topic       []byte
@@ -68,8 +85,8 @@ type container struct {
 
 func (f *TransferFrame) String() string {
 	return fmt.Sprintf(
-		"<frame:%s>(%s) with %d bytes of payload",
-		MessageTypeText(f.Type), f.Checksum, len(f.Data),
+		"<frame:%s> [ CS::%d ] with %d bytes of payload",
+		MessageTypeText(f.Type), f.ParseChecksum(), len(f.Data),
 	)
 }
 
@@ -90,10 +107,17 @@ func (f *TransferFrame) ParseDataLength() int {
 	return int(binary.BigEndian.Uint16(f.DataSize))
 }
 
+// ParseChecksum 将校验和转换为uint16类型
+func (f *TransferFrame) ParseChecksum() uint16 {
+	return binary.BigEndian.Uint16(f.Checksum)
+}
+
 // ParseTo 将帧消息解析成某一个具体的协议消息
 func (f *TransferFrame) ParseTo() (Message, error) {
 	// 将Data解析为具体的消息，返回指针
 	var msg Message
+	var err error
+
 	switch f.Type {
 	case CMessageType:
 		msg = &CMessage{}
@@ -107,18 +131,23 @@ func (f *TransferFrame) ParseTo() (Message, error) {
 		msg = &NotImplementMessage{}
 	}
 
-	err := msg.ParseFrom(bytes.NewBuffer(f.Data))
+	// 针对不同的解析类型选择最优的解析方法
+	if msg.MarshalMethod() == BinaryMarshalMethod {
+		err = msg.ParseFrom(bytes.NewBuffer(f.Data))
+	} else {
+		err = msg.Parse(f.Data)
+	}
+
 	if err != nil {
 		return nil, err
 	}
-
 	return msg, nil
 }
 
 // 构建缺省字段
 func (f *TransferFrame) buildFields() {
-	binary.BigEndian.AppendUint16(f.DataSize, uint16(len(f.Data)))
-	binary.BigEndian.AppendUint16(f.Checksum, CalcChecksum(f.Data))
+	binary.BigEndian.PutUint16(f.DataSize, uint16(len(f.Data)))
+	binary.BigEndian.PutUint16(f.Checksum, CalcChecksum(f.Data))
 }
 
 // BuildWith 补充字段,编码消息帧
@@ -141,7 +170,7 @@ func (f *TransferFrame) BuildFrom(m Message) ([]byte, error) {
 	return f.Build()
 }
 
-// Build 编码消息帧
+// Build 编码消息帧 (最终方法)
 func (f *TransferFrame) Build() ([]byte, error) {
 	f.buildFields()
 
@@ -152,7 +181,7 @@ func (f *TransferFrame) Build() ([]byte, error) {
 	content[2] = f.DataSize[0]
 	content[3] = f.DataSize[1]
 
-	copy(content[4:], f.Data)
+	copy(content[4:len(f.Data)+4], f.Data)
 
 	content[length-3] = f.Checksum[0]
 	content[length-2] = f.Checksum[1]

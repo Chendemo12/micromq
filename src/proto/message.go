@@ -2,7 +2,9 @@
 package proto
 
 import (
+	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"github.com/Chendemo12/fastapi-tool/helper"
 	"io"
@@ -19,11 +21,11 @@ func (b mh) Build(m Message) ([]byte, error) {
 }
 
 func (b mh) BuildTo(writer io.Writer, m Message) (int, error) {
-	bytes, err := m.Build()
+	_bytes, err := m.Build()
 	if err != nil {
 		return 0, err
 	}
-	return writer.Write(bytes)
+	return writer.Write(_bytes)
 }
 
 var mHelper = &mh{}
@@ -34,12 +36,21 @@ type Message interface {
 	HumanMessage                           // 类别和消息解码方法
 	Length() int                           // 编码后的消息序列长度
 	Reset()                                // 重置消息体
+	Parse(stream []byte) error             // 从字节序中解析消息
 	ParseFrom(reader io.Reader) error      // 从流中解析一个消息
 	Build() ([]byte, error)                // 构建消息序列
 	BuildTo(writer io.Writer) (int, error) // 直接将待构建的消息序列写入流内
 }
 
 // PMessage 生产者消息数据, 不允许复制
+//
+//	消息结构：
+//		|   TopicLen   |      Topic      |   KeyLen   |        key        |   ValueLen   |   Value   |
+//		|--------------|-----------------|------------|-------------------|--------------|-----------|
+//	len	|      1       | N [1-255] bytes |      1     |  N [1-255] bytes  |       2      |     N     |
+//	   	|--------------|-----------------|------------|-------------------|--------------|-----------|
+//
+// 打包后的总长度不能超过 65526 字节
 type PMessage struct {
 	noCopy NoCopy
 	Topic  []byte // 字符串转字节
@@ -70,6 +81,10 @@ func (m *PMessage) Reset() {
 	m.Topic = nil
 	m.Key = nil
 	m.Value = nil
+}
+
+func (m *PMessage) Parse(stream []byte) error {
+	return m.ParseFrom(bytes.NewReader(stream))
 }
 
 func (m *PMessage) ParseFrom(reader io.Reader) error {
@@ -141,13 +156,21 @@ func (m *PMessage) Build() ([]byte, error) {
 }
 
 func (m *PMessage) BuildTo(writer io.Writer) (int, error) {
-	bytes, _ := m.Build()
-	return writer.Write(bytes)
+	_bytes, _ := m.Build()
+	return writer.Write(_bytes)
 }
 
 // ========================================== 消费者消息记录协议定义 ==========================================
 
 // CMessage 消费者消息记录, 不允许复制
+//
+//	消息结构：
+//		|   TopicLen   |      Topic      |   KeyLen   |        key        |   ValueLen   |   Value   |   Offset   |   ProductTime   |
+//		|--------------|-----------------|------------|-------------------|--------------|-----------|------------|-----------------|
+//	len	|      1       | N [1-255] bytes |      1     |  N [1-255] bytes  |       2      |     N     |      8     |         8       |
+//	   	|--------------|-----------------|------------|-------------------|--------------|-----------|------------|-----------------|
+//
+// 打包后的总长度不能超过 65526 字节
 type CMessage struct {
 	Offset      []byte // uint64
 	ProductTime []byte // time.Time.Unix() 消息创建的Unix时间戳
@@ -174,6 +197,10 @@ func (m *CMessage) Reset() {
 	m.Offset = make([]byte, 8)
 	m.ProductTime = make([]byte, 8)
 	m.PM.Reset()
+}
+
+func (m *CMessage) Parse(stream []byte) error {
+	return m.ParseFrom(bytes.NewReader(stream))
 }
 
 func (m *CMessage) ParseFrom(reader io.Reader) error {
@@ -215,8 +242,8 @@ func (m *CMessage) Build() ([]byte, error) {
 	//		Value       []byte
 	//		Offset      uint64
 	//		ProductTime int64 // time.Time.Unix()
-	bytes, _ := m.PM.Build()
-	slice = append(slice, bytes...)
+	_bytes, _ := m.PM.Build()
+	slice = append(slice, _bytes...)
 	slice = append(slice, m.Offset[:7]...)
 	slice = append(slice, m.ProductTime[:7]...)
 
@@ -224,8 +251,8 @@ func (m *CMessage) Build() ([]byte, error) {
 }
 
 func (m *CMessage) BuildTo(writer io.Writer) (int, error) {
-	bytes, _ := m.Build()
-	return writer.Write(bytes)
+	_bytes, _ := m.Build()
+	return writer.Write(_bytes)
 }
 
 // ========================================== 消息响应协议定义 ==========================================
@@ -265,8 +292,19 @@ func (m *MessageResponse) Reset() {
 	m.Offset = 0
 }
 
-func (m *MessageResponse) ParseFrom(_ io.Reader) error {
-	return ErrMethodNotImplemented
+func (m *MessageResponse) Parse(stream []byte) error {
+	return helper.JsonUnmarshal(stream, m)
+}
+
+// ParseFrom 从reader解析消息，此操作不够优化，应考虑使用 Parse 方法
+func (m *MessageResponse) ParseFrom(reader io.Reader) error {
+	_bytes := make([]byte, 65526)
+	n, err := reader.Read(_bytes)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
+
+	return helper.JsonUnmarshal(_bytes[:n], m)
 }
 
 func (m *MessageResponse) Build() ([]byte, error) {
@@ -303,14 +341,19 @@ func (m *RegisterMessage) Length() int { return 0 }
 
 func (m *RegisterMessage) Reset() {}
 
+func (m *RegisterMessage) Parse(stream []byte) error {
+	return helper.JsonUnmarshal(stream, m)
+}
+
+// ParseFrom 从reader解析消息，此操作不够优化，应考虑使用 Parse 方法
 func (m *RegisterMessage) ParseFrom(reader io.Reader) error {
-	_bytes := make([]byte, 0, 65535)
+	_bytes := make([]byte, 65526)
 	n, err := reader.Read(_bytes)
-	if n == 0 {
+	if err != nil && !errors.Is(err, io.EOF) {
 		return err
 	}
-	fmt.Println(len(_bytes))
-	return helper.JsonUnmarshal(_bytes, m)
+
+	return helper.JsonUnmarshal(_bytes[:n], m)
 }
 
 func (m *RegisterMessage) Build() ([]byte, error) {
@@ -332,9 +375,16 @@ func (m NotImplementMessage) String() string {
 
 func (m NotImplementMessage) MessageType() MessageType         { return NotImplementMessageType }
 func (m NotImplementMessage) MarshalMethod() MarshalMethodType { return BinaryMarshalMethod }
-func (m NotImplementMessage) ParseFrom(_ io.Reader) error      { return ErrMethodNotImplemented }
 func (m NotImplementMessage) Length() int                      { return 0 }
 func (m NotImplementMessage) Reset()                           {}
+
+func (m NotImplementMessage) Parse(_ []byte) error {
+	return ErrMethodNotImplemented
+}
+
+func (m NotImplementMessage) ParseFrom(_ io.Reader) error {
+	return ErrMethodNotImplemented
+}
 
 func (m NotImplementMessage) Build() ([]byte, error) {
 	return nil, ErrMethodNotImplemented
