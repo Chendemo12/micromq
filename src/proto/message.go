@@ -11,25 +11,6 @@ import (
 	"time"
 )
 
-type mh struct{}
-
-func (b mh) Build(m Message) ([]byte, error) {
-	if m.MarshalMethod() == JsonMarshalMethod {
-		return helper.JsonMarshal(m)
-	}
-	return m.Build()
-}
-
-func (b mh) BuildTo(writer io.Writer, m Message) (int, error) {
-	_bytes, err := m.Build()
-	if err != nil {
-		return 0, err
-	}
-	return writer.Write(_bytes)
-}
-
-var mHelper = &mh{}
-
 // ========================================== 生产者消息数据协议定义 ==========================================
 
 type Message interface {
@@ -62,7 +43,7 @@ func (m *PMessage) String() string {
 	// "<message:ConsumerMessage> on [ T::DNS_UPDATE | K::2023-07-22T12:23:48.767 ] with 200 bytes of payload"
 	return fmt.Sprintf(
 		"<message:%s> on [ T::%s | K::%s ] with %d bytes of payload",
-		MessageTypeText(m.MessageType()), m.Topic, m.Key, len(m.Value),
+		descriptors[m.MessageType()].Text(), m.Topic, m.Key, len(m.Value),
 	)
 }
 
@@ -184,7 +165,7 @@ func (m *CMessage) String() string {
 	// "<message:ConsumerMessage> on [ T::DNS_UPDATE | K::2023-07-22T12:23:48.767 | O::2342 ] with 200 bytes of payload"
 	return fmt.Sprintf(
 		"<message:%s> on [ T::%s | K::%s | O::%d ] with %d bytes of payload",
-		MessageTypeText(m.MessageType()), m.PM.Topic, m.PM.Key, m.Offset, len(m.PM.Value),
+		descriptors[m.MessageType()].Text(), m.PM.Topic, m.PM.Key, m.Offset, len(m.PM.Value),
 	)
 }
 
@@ -272,7 +253,7 @@ type MessageResponse struct {
 func (m *MessageResponse) String() string {
 	return fmt.Sprintf(
 		"<message:%s> with result: %t",
-		MessageTypeText(m.MessageType()), m.Result,
+		descriptors[m.MessageType()].Text(), m.Result,
 	)
 }
 
@@ -330,7 +311,7 @@ type RegisterMessage struct {
 func (m *RegisterMessage) String() string {
 	return fmt.Sprintf(
 		"<message:%s> %s with %s",
-		MessageTypeText(m.MessageType()), m.Type, m.Ack,
+		descriptors[m.MessageType()].Text(), m.Type, m.Ack,
 	)
 }
 
@@ -373,7 +354,7 @@ type NotImplementMessage struct{}
 
 func (m NotImplementMessage) String() string {
 	return fmt.Sprintf(
-		"<message:%s> not implemented", MessageTypeText(m.MessageType()))
+		"<message:%s> not implemented", descriptors[m.MessageType()].Text())
 }
 
 func (m NotImplementMessage) MessageType() MessageType         { return NotImplementMessageType }

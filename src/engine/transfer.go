@@ -8,9 +8,9 @@ import (
 )
 
 type Transfer struct {
-	logger logger.Iface
 	mq     *Engine
 	tcps   *tcp.Server
+	logger logger.Iface
 }
 
 func (t *Transfer) init() *Transfer {
@@ -58,6 +58,7 @@ func (t *Transfer) Handler(r *tcp.Remote) error {
 	frame := framePool.Get()
 	err := frame.ParseFrom(r)
 	if err != nil {
+		go t.mq.EventHandler().OnFrameParseError(frame, r)
 		return fmt.Errorf("server parse frame failed: %v", err)
 	}
 
@@ -66,6 +67,7 @@ func (t *Transfer) Handler(r *tcp.Remote) error {
 	return nil
 }
 
+// Start 阻塞式启动TCP服务
 func (t *Transfer) Start() error { return t.init().tcps.Serve() }
 
 func (t *Transfer) Stop() {

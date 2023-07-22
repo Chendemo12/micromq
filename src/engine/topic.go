@@ -76,8 +76,10 @@ func (t *Topic) consume() {
 			}
 
 			go func() {
+				cons.mu.Lock() // 保证线程安全
 				_, _ = cons.Conn.Write(_bytes)
 				_ = cons.Conn.Drain()
+				cons.mu.Unlock()
 			}()
 			return true
 		})

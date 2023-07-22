@@ -91,7 +91,7 @@ type _ struct {
 func (f *TransferFrame) String() string {
 	return fmt.Sprintf(
 		"<frame:%s> [ CS::%d ] with %d bytes of payload",
-		MessageTypeText(f.Type), f.ParseChecksum(), len(f.Data),
+		descriptors[f.Type].Text(), f.ParseChecksum(), len(f.Data),
 	)
 }
 

@@ -2,6 +2,8 @@ package proto
 
 import (
 	"container/list"
+	"github.com/Chendemo12/fastapi-tool/helper"
+	"io"
 	"sync"
 	"sync/atomic"
 )
@@ -168,3 +170,22 @@ func NewPRegisterMessage() *RegisterMessage {
 		Type:   ProducerLinkType,
 	}
 }
+
+type mh struct{}
+
+func (b mh) Build(m Message) ([]byte, error) {
+	if m.MarshalMethod() == JsonMarshalMethod {
+		return helper.JsonMarshal(m)
+	}
+	return m.Build()
+}
+
+func (b mh) BuildTo(writer io.Writer, m Message) (int, error) {
+	_bytes, err := m.Build()
+	if err != nil {
+		return 0, err
+	}
+	return writer.Write(_bytes)
+}
+
+var mHelper = &mh{}
