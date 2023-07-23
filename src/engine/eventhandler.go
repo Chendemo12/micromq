@@ -1,8 +1,6 @@
 package engine
 
 import (
-	"fmt"
-	"github.com/Chendemo12/fastapi-tool/helper"
 	"github.com/Chendemo12/functools/tcp"
 	"github.com/Chendemo12/synshare-mq/src/proto"
 )
@@ -34,9 +32,7 @@ func (e emptyEventHandler) OnProducerRegister(_ string) {}
 func (e emptyEventHandler) OnConsumerClosed(_ string)   {}
 func (e emptyEventHandler) OnProducerClosed(_ string)   {}
 
-func (e emptyEventHandler) OnCMConsumed(record *HistoryRecord) {
-	fmt.Println(helper.HexBeautify(record.Topic), " sent")
-}
+func (e emptyEventHandler) OnCMConsumed(record *HistoryRecord) {}
 
 func (e emptyEventHandler) OnNotImplementMessageType(frame *proto.TransferFrame, r *tcp.Remote) (bool, error) {
 	return emptyHookHandler(frame, r)

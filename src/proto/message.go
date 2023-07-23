@@ -230,8 +230,8 @@ func (m *CMessage) Build() ([]byte, error) {
 	//		ProductTime int64 // time.Time.Unix()
 	_bytes, _ := m.PM.Build()
 	slice = append(slice, _bytes...)
-	slice = append(slice, m.Offset[:7]...)
-	slice = append(slice, m.ProductTime[:7]...)
+	slice = append(slice, m.Offset...)
+	slice = append(slice, m.ProductTime...)
 
 	return slice, nil
 }

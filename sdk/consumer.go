@@ -50,18 +50,17 @@ func (c *Consumer) toCMessage(frame *proto.TransferFrame) ([]*proto.ConsumerMess
 	reader := bytes.NewReader(frame.Data)
 
 	for err == nil && reader.Len() > 0 {
-		ecm := emPool.GetCM()
-		ecm.PM = emPool.GetPM()
-		err = ecm.ParseFrom(reader)
+		serverCM := emPool.GetCM()
+		serverCM.PM = emPool.GetPM()
+		err = serverCM.ParseFrom(reader)
 
 		if err == nil {
 			cm := hmPool.GetCM()
-			cm.ParseFromCMessage(ecm)
-
+			cm.ParseFromCMessage(serverCM)
 			cms = append(cms, cm)
 		}
 
-		emPool.PutCM(ecm)
+		emPool.PutCM(serverCM)
 	}
 
 	return cms, err

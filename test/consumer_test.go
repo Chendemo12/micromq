@@ -10,6 +10,7 @@ import (
 )
 
 type DnsConsumer struct {
+	sdk.ConsumerHandlerFunc
 	Host   string `json:"host"`
 	Port   string `json:"port"`
 	topics []string
@@ -23,7 +24,7 @@ func (c *DnsConsumer) Topics() []string { return c.topics }
 func (c *DnsConsumer) Handler(record *proto.ConsumerMessage) {
 	dns := &DnsForm{}
 	_ = record.ShouldBindJSON(dns)
-	fmt.Printf("receive message from: (%s-%s)\n", record.Topic, record.Key)
+	fmt.Printf("receive message %s from:%s\n", record, record.Key)
 	fmt.Printf("receive dns update: %s -> %s\n", dns.Domain, dns.IP)
 }
 
