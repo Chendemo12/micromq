@@ -3,11 +3,12 @@ package main
 import (
 	"github.com/Chendemo12/functools/environ"
 	"github.com/Chendemo12/functools/zaplog"
-	"github.com/Chendemo12/synshare-mq/src/engine"
+	"github.com/Chendemo12/synshare-mq/src/mq"
 )
 
 func main() {
 	listenPort := environ.GetString("LISTEN_PORT", "7270")
+	dashboardPort := environ.GetString("DASHBOARD_LISTEN_PORT", "7280")
 	size := environ.GetInt("MAX_OPEN_SIZE", 50)
 	debug := environ.GetBool("DEBUG", false)
 
@@ -24,13 +25,12 @@ func main() {
 		conf.Level = zaplog.DEBUG
 	}
 
-	handler := engine.New(engine.Config{
-		Host:        "0.0.0.0",
-		Port:        listenPort,
-		MaxOpenConn: size,
-		BufferSize:  100,
-		Logger:      zaplog.NewLogger(conf).Sugar(),
-	})
+	mqConf := mq.DefaultConf()
+	mqConf.Port = listenPort
+	mqConf.DashboardPort = dashboardPort
+	mqConf.MaxOpenConn = size
+	mqConf.Logger = zaplog.NewLogger(conf).Sugar()
 
+	handler := mq.New(mqConf)
 	handler.Run()
 }
