@@ -15,9 +15,21 @@ import (
 type ConsumerHandler interface {
 	Topics() []string
 	Handler(record *proto.ConsumerMessage)
-	OnConnected() // 当连接成功时,发出的信号, 此事件必须在执行完成之后才会进行后续的处理，因此需自行控制
-	OnClosed()    // 当连接中断时,发出的信号, 此事件会异步执行，与重连操作（若有）可能会同步进行
+	OnConnected() // （同步执行）当连接成功时,发出的信号, 此事件必须在执行完成之后才会进行后续的处理，因此需自行控制
+	OnClosed()    // （同步执行）当连接中断时,发出的信号, 此事件必须在执行完成之后才会进行重连操作（若有）
+	// OnNotImplementMessageType 当收到一个未实现的消息帧时触发的事件
+	OnNotImplementMessageType(frame *proto.TransferFrame, r *tcp.Remote)
 }
+
+type ConsumerHandlerFunc struct{}
+
+func (c *ConsumerHandlerFunc) OnConnected() {}
+
+func (c *ConsumerHandlerFunc) OnClosed() {}
+
+func (c *ConsumerHandlerFunc) OnNotImplementMessageType(frame *proto.TransferFrame, r *tcp.Remote) {}
+
+// ----------------------------------------------------------------------------
 
 // Consumer 消费者
 type Consumer struct {
@@ -39,9 +51,11 @@ func (c *Consumer) toCMessage(frame *proto.TransferFrame) ([]*proto.ConsumerMess
 
 	for err == nil && reader.Len() > 0 {
 		ecm := emPool.GetCM()
+		ecm.PM = emPool.GetPM()
 		err = ecm.ParseFrom(reader)
+
 		if err == nil {
-			cm := mPool.GetCM()
+			cm := hmPool.GetCM()
 			cm.ParseFromCMessage(ecm)
 
 			cms = append(cms, cm)
@@ -54,8 +68,6 @@ func (c *Consumer) toCMessage(frame *proto.TransferFrame) ([]*proto.ConsumerMess
 }
 
 func (c *Consumer) handleMessage(frame *proto.TransferFrame) {
-	defer framePool.Put(frame)
-
 	// 转换消息格式
 	cms, err := c.toCMessage(frame)
 	if err != nil {
@@ -64,26 +76,43 @@ func (c *Consumer) handleMessage(frame *proto.TransferFrame) {
 		return
 	}
 
-	for _, cm := range cms {
-		msg := cm
+	for _, msg := range cms {
+		cm := msg
 		go func() {
-			if c.isRegister.Load() && python.Has[string](c.handler.Topics(), msg.Topic) {
-				c.handler.Handler(msg)
+			defer hmPool.PutCM(cm)
+			// 出现脏数据
+			if c.isRegister.Load() && python.Has[string](c.handler.Topics(), cm.Topic) {
+				c.handler.Handler(cm)
 			} else {
-				// 出现脏数据
 				return
 			}
-			defer mPool.PutCM(msg)
 		}()
 	}
 }
 
 func (c *Consumer) handleRegisterMessage(frame *proto.TransferFrame) {
-	defer framePool.Put(frame)
-
 	// TODO: 后期应处理注册响应
 	c.isRegister.Store(true)
 	c.Logger().Info("consumer register successfully")
+}
+
+func (c *Consumer) distribute(frame *proto.TransferFrame, r *tcp.Remote) {
+	switch frame.Type {
+
+	case proto.RegisterMessageRespType:
+		c.handleRegisterMessage(frame)
+
+	case proto.ReRegisterMessageType:
+		c.isRegister.Store(false)
+		framePool.Put(frame)
+		_ = c.ReRegister(r)
+
+	case proto.CMessageType:
+		c.handleMessage(frame)
+
+	default: // 未识别的帧类型
+		c.handler.OnNotImplementMessageType(frame, r)
+	}
 }
 
 func (c *Consumer) Logger() logger.Iface { return c.conf.Logger }
@@ -95,50 +124,48 @@ func (c *Consumer) ReRegister(r *tcp.Remote) error {
 	c.isRegister.Store(false)
 	_, err := r.Write(c.frameBytes)
 	err = r.Drain()
+
 	return err
 }
 
-// OnAccepted 当TCP连接成功时就发送注册消息
+// OnAccepted 当TCP连接成功时会自行发送注册消息
 func (c *Consumer) OnAccepted(r *tcp.Remote) error {
 	c.isConnected.Store(true)
 
-	// 连接成功,发送注册消息
-	_, err := r.Write(c.frameBytes)
-	err = r.Drain()
-	if err != nil {
-		return err
-	}
-
 	c.handler.OnConnected()
-	return nil
+
+	// 连接成功,发送注册消息
+	return c.ReRegister(r)
 }
 
-func (c *Consumer) OnClosed(_ *tcp.Remote) error {
-	c.isConnected.Store(true)
-	c.isRegister.Store(true)
-	go c.handler.OnClosed()
+func (c *Consumer) OnClosed(r *tcp.Remote) error {
+	c.Logger().Warn("consumer connection lost with: ", r.Addr())
+	c.isConnected.Store(false)
+	c.isRegister.Store(false)
+	c.handler.OnClosed()
+
 	return nil
 }
 
 func (c *Consumer) Handler(r *tcp.Remote) error {
+	if r.Len() < proto.FrameMinLength {
+		return proto.ErrMessageNotFull
+	}
+
 	frame := framePool.Get()
-	err := frame.ParseFrom(r)
-	if err != nil {
-		return fmt.Errorf("tcp frame parse failed, %v", err)
-	}
+	err := frame.ParseFrom(r) // 此操作不应并发读取，避免消息2覆盖消息1的缓冲区
 
-	switch frame.Type {
-	case proto.RegisterMessageRespType:
-		c.handleRegisterMessage(frame)
+	// 异步执行，立刻读取下一条消息
+	go func(f *proto.TransferFrame, client *tcp.Remote, err error) { // 处理消息帧
+		defer framePool.Put(f)
 
-	case proto.ReRegisterMessageType:
-		c.isRegister.Store(false)
-		framePool.Put(frame)
-		return c.ReRegister(r)
+		if err != nil {
+			c.Logger().Warn(fmt.Errorf("server parse frame failed: %v", err))
+		} else {
+			c.distribute(f, client)
+		}
+	}(frame, r, err)
 
-	case proto.CMessageType:
-		go c.handleMessage(frame)
-	}
 	return nil
 }
 
@@ -170,6 +197,7 @@ func (c *Consumer) JSONMarshal(v any) ([]byte, error) {
 	return helper.JsonMarshal(v)
 }
 
+// NewConsumer 创建一个消费者，需要手动Start
 func NewConsumer(conf Config, handler ConsumerHandler) (*Consumer, error) {
 	if handler == nil || len(handler.Topics()) < 1 {
 		return nil, ErrTopicEmpty
@@ -222,6 +250,7 @@ func NewConsumer(conf Config, handler ConsumerHandler) (*Consumer, error) {
 	return con, nil
 }
 
+// NewAsyncConsumer 创建异步消费者
 func NewAsyncConsumer(conf Config, handler ConsumerHandler) (*Consumer, error) {
 	con, err := NewConsumer(conf, handler)
 	if err != nil {

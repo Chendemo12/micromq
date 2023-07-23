@@ -7,7 +7,7 @@ import (
 )
 
 var framePool = proto.NewFramePool()
-var mPool = proto.NewHCPMPool()
+var hmPool = proto.NewHCPMPool()
 var emPool = proto.NewCPMPool()
 
 var ErrTopicEmpty = errors.New("topic is empty")

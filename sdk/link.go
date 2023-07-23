@@ -53,7 +53,7 @@ func (l *Link) Connect() error {
 		Host:           l.Host,
 		Port:           l.Port,
 		ByteOrder:      "big",
-		ReconnectDelay: 2,
+		ReconnectDelay: 2, // 此参数单位为s
 		Reconnect:      true,
 	})
 

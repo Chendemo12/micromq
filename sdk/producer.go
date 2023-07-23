@@ -49,6 +49,7 @@ func (p *Producer) tick() {
 		case <-p.Done():
 			return
 		default:
+			// 此操作以支持实时修改发送周期
 			time.Sleep(p.tickInterval)
 			p.dingDong <- struct{}{} // 发送信号
 		}
@@ -75,19 +76,19 @@ func (p *Producer) sendToServer() {
 		case <-p.dingDong:
 
 		// TODO: 定时批量发送消息
-		case msg := <-p.queue:
+		case pm := <-p.queue:
 			serverPM := &proto.PMessage{
-				Topic: helper.S2B(msg.Topic),
-				Key:   helper.S2B(msg.Key),
-				Value: msg.Value,
+				Topic: helper.S2B(pm.Topic),
+				Key:   helper.S2B(pm.Key),
+				Value: pm.Value,
 			}
 
 			frame := framePool.Get()
 			_bytes, err := frame.BuildFrom(serverPM)
 
 			// release
-			mPool.PutPM(msg)
 			framePool.Put(frame)
+			hmPool.PutPM(pm)
 
 			if err != nil { // 可能性很小
 				continue
@@ -135,7 +136,7 @@ func (p *Producer) OnAccepted(r *tcp.Remote) error {
 
 // ReRegister 服务器令客户端重新发起注册流程
 func (p *Producer) ReRegister(r *tcp.Remote) error {
-	p.isRegister.Store(true)
+	p.isRegister.Store(false)
 	_, _ = r.Write(p.regFrameBytes)
 	return r.Drain()
 }
@@ -184,12 +185,12 @@ func (p *Producer) Handler(r *tcp.Remote) error {
 
 // NewRecord 从池中初始化一个新的消息记录
 func (p *Producer) NewRecord() *proto.ProducerMessage {
-	return mPool.GetPM()
+	return hmPool.GetPM()
 }
 
 // PutRecord 主动归还消息记录到池，仅在主动调用 NewRecord 却没发送数据时使用
 func (p *Producer) PutRecord(msg *proto.ProducerMessage) {
-	mPool.PutPM(msg)
+	hmPool.PutPM(msg)
 }
 
 // Publisher 发送消息
@@ -255,7 +256,7 @@ func (h emptyPHandler) OnRegistered()     {}
 func (h emptyPHandler) OnClose()          {}
 func (h emptyPHandler) OnRegisterExpire() {}
 
-// NewProducer 创建异步生产者,无需再手动启动
+// NewProducer 创建异步生产者,需手动启动
 func NewProducer(conf Config, handlers ...ProducerHandler) *Producer {
 	c := &Config{
 		Host:   conf.Host,
