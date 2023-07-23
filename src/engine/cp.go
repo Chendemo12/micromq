@@ -78,3 +78,5 @@ func (p *Producer) reset() *Producer {
 
 	return p
 }
+
+func (p *Producer) NeedConfirm() bool { return p.Conf.Ack != proto.NoConfirm }

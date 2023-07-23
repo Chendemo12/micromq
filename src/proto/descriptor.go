@@ -1,8 +1,5 @@
 package proto
 
-// Descriptors 全局协议描述符
-func Descriptors() []*Descriptor { return descriptors }
-
 func GetDescriptor(code MessageType) *Descriptor { return descriptors[code] }
 
 // AddDescriptor 添加描述符号表, 对于已经实现的协议则不允许修改
@@ -35,8 +32,10 @@ func (m Descriptor) Text() string { return m.text }
 // UserDefined 是否是用户自定义协议
 func (m Descriptor) UserDefined() bool { return m.userDefined }
 
+// 全局协议描述符表
+//
 //goland:noinspection GoUnusedGlobalVariable
-var descriptors = make([]*Descriptor, TotalNumberOfMessages)
+var descriptors [TotalNumberOfMessages]*Descriptor
 
 func init() {
 	// 将所有协议全部初始化为 未实现的自定义协议

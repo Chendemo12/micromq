@@ -7,97 +7,122 @@ import (
 	"time"
 )
 
-var mp = proto.NewCPMPool()
+var cpmp = proto.NewCPMPool()
 var framePool = proto.NewFramePool()
 
-type Event struct {
-	q chan struct{}
+type HistoryRecord struct {
+	Topic       []byte            // 历史记录所属的topic
+	Offset      []byte            // 历史记录所属的偏移量
+	Time        int64             // 历史记录创建时间戳,而非CM被创建的事件戳
+	MessageType proto.MessageType // CM协议类型,以此来反序列化
+	Stream      []byte            // CM序列化字节流
+	cm          *proto.CMessage   // nil
 }
 
-func (e *Event) IsSet() bool { return len(e.q) > 0 }
-func (e *Event) Set()        { e.q <- struct{}{} }
-func (e *Event) Wait()       { <-e.q }
-
-func NewEvent() *Event { return &Event{q: make(chan struct{})} }
-
 type Topic struct {
-	Name           []byte               // 唯一标识
-	BufferSize     int                  // 生产者消息缓冲区大小
-	offset         uint64               // 当前数据偏移量
+	Name           []byte               `json:"name"`         // 唯一标识
+	HistorySize    int                  `json:"history_size"` // 生产者消息缓冲区大小
+	Offset         uint64               `json:"offset"`       // 当前数据偏移量,仅用于模糊显示
 	counter        *proto.Counter       // 生产者消息计数器,用于计算数据偏移量
 	consumers      *sync.Map            // 全部消费者: {addr: Consumer}
-	consumerQueue  chan *proto.CMessage // 等待消费者消费的数据, 若生产者消息发生了挤压,则会丢弃最早的未消费的数据
-	publisherQueue *proto.Queue         // 生产者生产的数据: proto.Queue[*proto.CMessage]
-	// TODO: 移除通道 consumerQueue, 由计时器和 publisherEvent 事件触发,
-	// 一次性将队列里的所有数据全部发送给消费者
-	publisherEvent *Event
+	queue          chan *proto.CMessage // 等待消费者消费的数据
+	historyRecords *proto.Queue         // proto.Queue[*HistoryRecord], 历史消息,由web查询展示
 	mu             *sync.Mutex
+	onConsumed     func(record *HistoryRecord)
 }
 
 // 计算当前消息偏移量
-func (t *Topic) makeOffset() uint64 {
-	t.offset = t.counter.ValueBeforeIncrement()
-	return t.offset
+func (t *Topic) refreshOffset() uint64 {
+	t.Offset = t.counter.ValueBeforeIncrement()
+	return t.Offset
 }
 
-func (t *Topic) msgMove() {
-	for {
-		t.publisherEvent.Wait()
+// 当一个消息发送给所有消费者后需要处理的事件
+func (t *Topic) onMessageConsumed(record *HistoryRecord) {
+	cm := record.cm
+	record.cm = nil
+	// 添加到历史记录
+	t.historyRecords.Append(record)
 
-		msg := t.publisherQueue.PopLeft()
-		if msg != nil {
-			t.consumerQueue <- msg.(*proto.CMessage)
+	t.onConsumed(record)
+
+	// cm:
+	//	1. Topic.Publisher 创建, 并绑定pm
+	//	2. Publisher 加入到 Topic.queue
+	//	3. Topic.consume 从 Topic.queue 中消费pm 并绑定到 record
+	//	4. Topic.consume -> Topic.sendAndWait -> 此
+	// 	5. CPMPool 释放CM时会同时释放PM
+	//
+
+	cpmp.PutCM(cm) // release
+}
+
+// 发送并等待所有消费者收到消息
+func (t *Topic) sendAndWait(record *HistoryRecord) {
+	wg := &sync.WaitGroup{}
+
+	t.consumers.Range(func(key, value any) bool {
+		c, ok := value.(*Consumer)
+		if ok {
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+
+				c.mu.Lock() // 保证线程安全
+				_, _ = c.Conn.Write(record.Stream)
+				_ = c.Conn.Drain()
+				c.mu.Unlock()
+			}()
 		}
-	}
+		return true
+	})
+
+	wg.Wait() // 所有消费者都收到了消息,触发事件
+	t.onMessageConsumed(record)
 }
 
 // 向消费者发送消息帧
 // TODO: 实现多个消息压缩为帧
 func (t *Topic) consume() {
-	var _bytes []byte
-	var err error
+	t.historyRecords = proto.NewQueue(t.HistorySize)
 
-	for msg := range t.consumerQueue {
+	for cm := range t.queue {
 		frame := framePool.Get()
-		_bytes, err = frame.BuildFrom(msg)
-
+		_bytes, err := frame.BuildFrom(cm)
 		framePool.Put(frame)
-		mp.PutCM(msg)
-		mp.PutPM(msg.PM)
 
 		if err != nil {
+			cpmp.PutCM(cm)
 			continue
 		}
 
-		t.consumers.Range(func(key, value any) bool {
-			cons, ok := value.(*Consumer)
-			if !ok {
-				return true
-			}
+		record := &HistoryRecord{
+			Topic:       t.Name,
+			Offset:      cm.Offset,
+			Time:        0,
+			MessageType: cm.MessageType(),
+			Stream:      _bytes,
+			cm:          cm,
+		}
 
-			go func() {
-				cons.mu.Lock() // 保证线程安全
-				_, _ = cons.Conn.Write(_bytes)
-				_ = cons.Conn.Drain()
-				cons.mu.Unlock()
-			}()
-			return true
-		})
+		go t.sendAndWait(record)
 	}
 }
 
+// IterConsumer 逐个迭代现有消费者
+func (t *Topic) IterConsumer(fn func(c *Consumer)) {
+	t.consumers.Range(func(key, value any) bool {
+		c, ok := value.(*Consumer)
+		if ok {
+			fn(c)
+		}
+		return true
+	})
+}
+
+// AddConsumer 添加一个消费者
 func (t *Topic) AddConsumer(con *Consumer) {
 	t.consumers.Store(con.Addr, con)
-}
-
-// GetConsumer 查找消费者
-func (t *Topic) GetConsumer(addr string) *Consumer {
-	v, ok := t.consumers.Load(addr)
-	if !ok {
-		return nil
-	} else {
-		return v.(*Consumer)
-	}
 }
 
 // RemoveConsumer 移除一个消费者
@@ -107,33 +132,36 @@ func (t *Topic) RemoveConsumer(addr string) {
 
 // Publisher 发布消费者消息,此处会将来自生产者的消息转换成消费者消息
 func (t *Topic) Publisher(pm *proto.PMessage) uint64 {
-	offset := t.makeOffset()
-	cm := mp.GetCM()
+	offset := t.refreshOffset()
+	cm := cpmp.GetCM() // cm.PM is nil
 
 	binary.BigEndian.PutUint64(cm.Offset, offset)
 	binary.BigEndian.PutUint64(cm.ProductTime, uint64(time.Now().Unix()))
 	cm.PM = pm
 
-	// 若缓冲区已满, 则丢弃最早的数据
-	t.publisherQueue.Append(cm)
-	t.publisherEvent.Set()
+	// pm:
+	//	1. Engine.handlePMessage 创建
+	//	2. 1调用 Engine.Publisher 传递给 Topic.Publisher
+	//	3. Topic.Publisher 绑定到cm上
+	//	4. CPMPool 释放CM时会同时释放PM
+	//
+
+	t.queue <- cm
 
 	return offset
 }
 
-func NewTopic(name []byte, bufferSize int) *Topic {
+func NewTopic(name []byte, bufferSize, historySize int, onConsumed func(record *HistoryRecord)) *Topic {
 	t := &Topic{
-		Name:           name,
-		BufferSize:     bufferSize,
-		offset:         0,
-		counter:        proto.NewCounter(),
-		consumers:      &sync.Map{},
-		consumerQueue:  make(chan *proto.CMessage, bufferSize),
-		publisherQueue: proto.NewQueue(bufferSize),
-		publisherEvent: NewEvent(),
-		mu:             &sync.Mutex{},
+		Name:        name,
+		HistorySize: historySize,
+		Offset:      0,
+		counter:     proto.NewCounter(),
+		consumers:   &sync.Map{},
+		queue:       make(chan *proto.CMessage, bufferSize),
+		mu:          &sync.Mutex{},
+		onConsumed:  onConsumed,
 	}
-	go t.msgMove()
 	go t.consume()
 
 	return t

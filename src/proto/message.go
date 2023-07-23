@@ -43,7 +43,7 @@ func (m *PMessage) String() string {
 	// "<message:ConsumerMessage> on [ T::DNS_UPDATE | K::2023-07-22T12:23:48.767 ] with 200 bytes of payload"
 	return fmt.Sprintf(
 		"<message:%s> on [ T::%s | K::%s ] with %d bytes of payload",
-		descriptors[m.MessageType()].Text(), m.Topic, m.Key, len(m.Value),
+		GetDescriptor(m.MessageType()).Text(), m.Topic, m.Key, len(m.Value),
 	)
 }
 
@@ -165,7 +165,7 @@ func (m *CMessage) String() string {
 	// "<message:ConsumerMessage> on [ T::DNS_UPDATE | K::2023-07-22T12:23:48.767 | O::2342 ] with 200 bytes of payload"
 	return fmt.Sprintf(
 		"<message:%s> on [ T::%s | K::%s | O::%d ] with %d bytes of payload",
-		descriptors[m.MessageType()].Text(), m.PM.Topic, m.PM.Key, m.Offset, len(m.PM.Value),
+		GetDescriptor(m.MessageType()).Text(), m.PM.Topic, m.PM.Key, m.Offset, len(m.PM.Value),
 	)
 }
 
@@ -180,7 +180,9 @@ func (m *CMessage) Length() int { return 16 + m.PM.Length() }
 func (m *CMessage) Reset() {
 	m.Offset = make([]byte, 8)
 	m.ProductTime = make([]byte, 8)
-	m.PM.Reset()
+	if m.PM != nil {
+		m.PM.Reset()
+	}
 }
 
 func (m *CMessage) Parse(stream []byte) error {
@@ -253,7 +255,7 @@ type MessageResponse struct {
 func (m *MessageResponse) String() string {
 	return fmt.Sprintf(
 		"<message:%s> with result: %t",
-		descriptors[m.MessageType()].Text(), m.Result,
+		GetDescriptor(m.MessageType()).Text(), m.Result,
 	)
 }
 
@@ -311,7 +313,7 @@ type RegisterMessage struct {
 func (m *RegisterMessage) String() string {
 	return fmt.Sprintf(
 		"<message:%s> %s with %s",
-		descriptors[m.MessageType()].Text(), m.Type, m.Ack,
+		GetDescriptor(m.MessageType()).Text(), m.Type, m.Ack,
 	)
 }
 
@@ -354,7 +356,7 @@ type NotImplementMessage struct{}
 
 func (m NotImplementMessage) String() string {
 	return fmt.Sprintf(
-		"<message:%s> not implemented", descriptors[m.MessageType()].Text())
+		"<message:%s> not implemented", GetDescriptor(m.MessageType()).Text())
 }
 
 func (m NotImplementMessage) MessageType() MessageType         { return NotImplementMessageType }

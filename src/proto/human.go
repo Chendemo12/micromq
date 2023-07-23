@@ -29,7 +29,7 @@ func (m *ConsumerMessage) String() string {
 	// "<message:ConsumerMessage> on [ T::DNS_UPDATE | K::2023-07-22T12:23:48.767 | O::2342 ] with 200 bytes of payload"
 	return fmt.Sprintf(
 		"<message:%s> on [ T::%s | K::%s | O::%d ] with %d bytes of payload",
-		descriptors[m.MessageType()].Text(), m.Topic, m.Key, m.Offset, len(m.Value),
+		GetDescriptor(m.MessageType()).Text(), m.Topic, m.Key, m.Offset, len(m.Value),
 	)
 }
 
@@ -72,7 +72,7 @@ func (m *ProducerMessage) String() string {
 	// "<message:ConsumerMessage> on [ T::DNS_UPDATE | K::2023-07-22T12:23:48.767 ] with 200 bytes of payload"
 	return fmt.Sprintf(
 		"<message:%s> on [ T::%s | K::%s ] with %d bytes of payload",
-		descriptors[m.MessageType()].Text(), m.Topic, m.Key, len(m.Value),
+		GetDescriptor(m.MessageType()).Text(), m.Topic, m.Key, len(m.Value),
 	)
 }
 

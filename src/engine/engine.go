@@ -15,13 +15,14 @@ import (
 )
 
 type Config struct {
-	Host         string       `json:"host"`
-	Port         string       `json:"port"`
-	MaxOpenConn  int          `json:"max_open_conn"` // 允许的最大连接数, 即 生产者+消费者最多有 MaxOpenConn 个
-	BufferSize   int          `json:"buffer_size"`   // 生产者消息历史记录最大数量
-	Logger       logger.Iface `json:"-"`
-	Crypto       proto.Crypto `json:"-"` // 加密器
-	EventHandler EventHandler
+	Host             string       `json:"host"`
+	Port             string       `json:"port"`
+	MaxOpenConn      int          `json:"max_open_conn"` // 允许的最大连接数, 即 生产者+消费者最多有 MaxOpenConn 个
+	BufferSize       int          `json:"buffer_size"`   // 生产者消息历史记录最大数量
+	Logger           logger.Iface `json:"-"`
+	Crypto           proto.Crypto `json:"-"` // 加密器
+	EventHandler     EventHandler // 事件触发器
+	topicHistorySize int          // topic 历史缓存大小
 }
 
 func (c *Config) Clean() *Config {
@@ -42,6 +43,7 @@ func (c *Config) Clean() *Config {
 	if c.EventHandler == nil {
 		c.EventHandler = emptyEventHandler{}
 	}
+	c.topicHistorySize = 100
 
 	return c
 }
@@ -51,14 +53,22 @@ type Engine struct {
 	producers            []*Producer // 生产者
 	consumers            []*Consumer // 消费者
 	topics               *sync.Map
-	transfer             *Transfer
+	transfer             Transfer
 	producerSendInterval time.Duration // 生产者发送消息的时间间隔 = 500ms
-	cpLock               *sync.RWMutex // consumer producer lock
-	hooks                [proto.TotalNumberOfMessages]*Hook
+	cpLock               *sync.RWMutex // consumer producer add/remove lock
+	// 各种协议的处理者
+	hooks [proto.TotalNumberOfMessages]*Hook
 }
 
 func (e *Engine) init() *Engine {
 	// 初始化全部内存对象
+	for i := 0; i < proto.TotalNumberOfMessages; i++ {
+		e.hooks[i] = &Hook{ // 初始化为未实现
+			Type:    proto.NotImplementMessageType,
+			Handler: emptyHookHandler,
+		}
+	}
+
 	e.producers = make([]*Producer, e.conf.MaxOpenConn)
 	e.consumers = make([]*Consumer, e.conf.MaxOpenConn)
 
@@ -80,13 +90,6 @@ func (e *Engine) init() *Engine {
 		}
 	}
 
-	for i := 0; i < proto.TotalNumberOfMessages; i++ {
-		e.hooks[i] = &Hook{
-			Type:    proto.NotImplementMessageType,
-			Handler: emptyHookHandler,
-		}
-	}
-
 	// 修改全局加解密器
 	proto.SetGlobalCrypto(e.conf.Crypto)
 
@@ -95,47 +98,85 @@ func (e *Engine) init() *Engine {
 	e.hooks[proto.RegisterMessageType].Type = proto.RegisterMessageType
 	e.hooks[proto.RegisterMessageType].Handler = e.handleRegisterMessage
 
-	// 生产消息
+	// 生产者消息
 	e.hooks[proto.PMessageType].Type = proto.PMessageType
-	e.hooks[proto.PMessageType].Handler = e.handleProductionMessage
+	e.hooks[proto.PMessageType].Handler = e.handlePMessage
+
+	// 设置默认实现
+	if e.transfer == nil {
+		e.transfer = &TCPTransfer{}
+	}
+
+	// 注册传输层实现
+	e.transfer.SetHost(e.conf.Host)
+	e.transfer.SetPort(e.conf.Port)
+	e.transfer.SetMaxOpenConn(e.conf.MaxOpenConn)
+	e.transfer.SetLogger(e.Logger())
+
+	e.transfer.SetOnConnectedHandler(e.whenClientAccept)
+	e.transfer.SetOnClosedHandler(e.whenClientClose)
+	e.transfer.SetOnReceivedHandler(e.distribute)
+	e.transfer.SetOnFrameParseErrorHandler(e.EventHandler().OnFrameParseError)
 
 	return e
+}
+
+// 连接成功时不关联数据, 仅在注册成功时,关联到 Engine 中
+func (e *Engine) whenClientAccept(r *tcp.Remote) {}
+
+func (e *Engine) whenClientClose(addr string) {
+	e.RemoveConsumer(addr)
+	e.RemoveProducer(addr)
 }
 
 func (e *Engine) Logger() logger.Iface       { return e.conf.Logger }
 func (e *Engine) EventHandler() EventHandler { return e.conf.EventHandler }
 
+// ReplaceTransfer 替换传输层实现
+func (e *Engine) ReplaceTransfer(transfer Transfer) *Engine {
+	if transfer != nil {
+		e.transfer = transfer
+	}
+	return e
+}
+
+// SetTopicHistoryBufferSize 设置topic历史数据缓存大小, 对于修改前已经创建的topic不受影响
+//
+//	@param size	int 历史数据缓存大小,[1, 10000)
+func (e *Engine) SetTopicHistoryBufferSize(size int) *Engine {
+	if size > 0 && size < 10000 {
+		e.conf.topicHistorySize = size
+	}
+
+	return e
+}
+
 // QueryConsumer 查询消费者记录, 若未注册则返回nil
-func (e *Engine) QueryConsumer(addr string) (*Consumer, error) {
-	index := -1
+func (e *Engine) QueryConsumer(addr string) (*Consumer, bool) {
+	var consumer *Consumer = nil
 	e.RangeConsumer(func(c *Consumer) bool {
 		if c.Addr == addr {
-			index = c.index
+			consumer = c
 			return false
 		}
 		return true
 	})
 
-	if index != -1 {
-		return e.consumers[index], nil
-	}
-	return nil, ErrConsumerNotRegister
+	return consumer, consumer != nil
 }
 
 // QueryProducer 查询生产者记录, 若未注册则返回nil
-func (e *Engine) QueryProducer(addr string) (*Producer, error) {
-	index := -1
+func (e *Engine) QueryProducer(addr string) (*Producer, bool) {
+	var producer *Producer = nil
 	e.RangeProducer(func(p *Producer) bool {
 		if p.Addr == addr {
-			index = p.index
+			producer = p
 			return false
 		}
 		return true
 	})
-	if index != -1 {
-		return e.producers[index], nil
-	}
-	return nil, ErrProducerNotRegister
+
+	return producer, producer != nil
 }
 
 // RangeConsumer if false returned, for-loop will stop
@@ -164,10 +205,18 @@ func (e *Engine) RangeTopic(fn func(topic *Topic) bool) {
 	})
 }
 
+// AddTopic 添加一个新的topic,如果topic以存在则跳过
 func (e *Engine) AddTopic(name []byte) *Topic {
-	topic := NewTopic(name, e.conf.BufferSize)
-	e.topics.Store(string(name), topic)
-	return topic
+	topic, _ := e.topics.LoadOrStore(
+		string(name), NewTopic(
+			name,
+			e.conf.BufferSize,
+			e.conf.topicHistorySize,
+			e.EventHandler().OnCMConsumed,
+		),
+	)
+
+	return topic.(*Topic)
 }
 
 // GetTopic 获取topic,并在不存在时自动新建一个topic
@@ -190,7 +239,7 @@ func (e *Engine) GetTopicOffset(name []byte) uint64 {
 
 	e.RangeTopic(func(topic *Topic) bool {
 		if bytes.Compare(topic.Name, name) == 0 {
-			offset = topic.offset
+			offset = topic.Offset
 			return false
 		}
 		return true
@@ -204,8 +253,8 @@ func (e *Engine) RemoveConsumer(addr string) {
 	e.cpLock.Lock()
 	defer e.cpLock.Unlock()
 
-	c, err := e.QueryConsumer(addr)
-	if err != nil {
+	c, exist := e.QueryConsumer(addr)
+	if !exist {
 		return // consumer not found
 	}
 
@@ -219,24 +268,17 @@ func (e *Engine) RemoveConsumer(addr string) {
 	go e.EventHandler().OnConsumerClosed(addr)
 }
 
+// RemoveProducer 删除一个生产者
 func (e *Engine) RemoveProducer(addr string) {
 	e.cpLock.Lock()
 	defer e.cpLock.Unlock()
 
-	p, err := e.QueryProducer(addr)
-	if err != nil {
-		return
+	p, exist := e.QueryProducer(addr)
+	if exist {
+		p.reset()
+		e.Logger().Info(fmt.Sprintf("<%s:%s> removed", proto.ProducerLinkType, addr))
+		go e.EventHandler().OnProducerClosed(addr)
 	}
-
-	p.reset()
-	e.Logger().Info(fmt.Sprintf("<%s:%s> removed", proto.ProducerLinkType, addr))
-	go e.EventHandler().OnProducerClosed(addr)
-}
-
-// IsProducerRegister 依据IP地址判断当前生产者是否已注册
-func (e *Engine) IsProducerRegister(addr string) bool {
-	_, err := e.QueryProducer(addr)
-	return err == nil
 }
 
 // Publisher 发布消息,并返回此消息在当前topic中的偏移量
@@ -249,29 +291,13 @@ func (e *Engine) ProducerSendInterval() time.Duration {
 	return e.producerSendInterval
 }
 
-// LetReRegister 令客户端重新发起注册流程
-func (e *Engine) LetReRegister(r *tcp.Remote) {
-	frame := framePool.Get()
-	defer framePool.Put(frame)
-
-	// 重新发起注册暂无消息体
-	_bytes, err := frame.BuildWith(proto.ReRegisterMessageType, []byte{})
-	if err != nil {
-		e.Logger().Warn("make re-register failed: ", err)
-	} else {
-		_, _ = r.Write(_bytes)
-		_ = r.Drain()
-	}
-}
-
-// Distribute 分发消息
-func (e *Engine) Distribute(frame *proto.TransferFrame, r *tcp.Remote) {
-	defer framePool.Put(frame)
-
+// 分发消息
+func (e *Engine) distribute(frame *proto.TransferFrame, r *tcp.Remote) {
 	var err error
 	var needResp bool
 
-	if proto.Descriptors()[frame.Type] != nil {
+	if proto.GetDescriptor(frame.Type).MessageType() != proto.NotImplementMessageType {
+		// 协议已实现
 		needResp, err = e.hooks[frame.Type].Handler(frame, r)
 	} else {
 		// 此协议未注册, 通过事件回调处理
@@ -285,39 +311,40 @@ func (e *Engine) Distribute(frame *proto.TransferFrame, r *tcp.Remote) {
 
 	// 重新构建并写入消息帧
 	_bytes, err := frame.Build()
-	if err != nil { // 此处构建失败的可能性为0, 为了保持接口一致而为之
+	if err != nil { // 此处构建失败的可能性很小，存在加密错误
+		e.Logger().Warn(fmt.Sprintf("build frame <message:%d> failed: %s", frame.Type, err))
 		return
 	}
+
 	_, err = r.Write(_bytes)
 	err = r.Drain()
 	if err != nil {
 		e.Logger().Warn(fmt.Sprintf(
 			"send <message:%d> to '%s' failed: %s", frame.Type, r.Addr(), err,
 		))
-		return
 	}
 }
 
 // 处理注册消息, 内部无需返回消息,通过修改frame实现返回消息
 func (e *Engine) handleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remote) (bool, error) {
-	msg, err := frame.ParseTo()
-	rgm, ok := msg.(*proto.RegisterMessage)
-	if err != nil || !ok {
+	msg := &proto.RegisterMessage{}
+	err := frame.Unmarshal(msg)
+	if err != nil {
 		return false, fmt.Errorf("register message parse failed, %v", err)
 	}
 
-	e.Logger().Debug(fmt.Sprintf("receive '%s' from  %s", rgm, r.Addr()))
+	e.Logger().Debug(fmt.Sprintf("receive '%s' from  %s", msg, r.Addr()))
 
-	result := false // 是否允许注册
+	result := false // 是否允许注册, false: 超过了最大限制等原因
 
-	switch rgm.Type {
+	switch msg.Type {
 	case proto.ProducerLinkType: // 注册生产者
-		// 上个锁, 防止刚注册就断开
-		e.cpLock.Lock()
+		e.cpLock.Lock() // 上个锁, 防止刚注册就断开
+
 		e.RangeProducer(func(p *Producer) bool {
 			if p.Addr == "" { // 记录生产者, 用于判断其后是否要返回消息投递后的确认消息
 				p.Addr = r.Addr()
-				p.Conf = &ProducerConfig{Ack: rgm.Ack, TickerInterval: e.ProducerSendInterval()}
+				p.Conf = &ProducerConfig{Ack: msg.Ack, TickerInterval: e.ProducerSendInterval()}
 				p.Conn = r
 				result = true
 
@@ -333,11 +360,11 @@ func (e *Engine) handleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remote
 		e.RangeConsumer(func(c *Consumer) bool {
 			if c.Addr == "" {
 				c.Addr = r.Addr()
-				c.Conf = &ConsumerConfig{Topics: rgm.Topics, Ack: rgm.Ack}
+				c.Conf = &ConsumerConfig{Topics: msg.Topics, Ack: msg.Ack}
 				c.setConn(r)
 				result = true
 
-				for _, name := range rgm.Topics {
+				for _, name := range msg.Topics {
 					e.GetTopic([]byte(name)).AddConsumer(c)
 				}
 
@@ -362,13 +389,13 @@ func (e *Engine) handleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remote
 		return false, fmt.Errorf("register response message build failed: %v", err)
 	}
 
-	e.Logger().Info(fmt.Sprintf("<%s:%s> registered", rgm.Type, r.Addr()))
+	e.Logger().Info(fmt.Sprintf("<%s:%s> registered", msg.Type, r.Addr()))
 
 	// 触发回调
-	if result && rgm.Type == proto.ProducerLinkType {
+	if result && msg.Type == proto.ProducerLinkType {
 		go e.EventHandler().OnProducerRegister(r.Addr())
 	}
-	if result && rgm.Type == proto.ConsumerLinkType {
+	if result && msg.Type == proto.ConsumerLinkType {
 		go e.EventHandler().OnConsumerRegister(r.Addr())
 	}
 
@@ -377,25 +404,33 @@ func (e *Engine) handleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remote
 
 // 处理生产者消息帧，此处需要判断生产者是否已注册
 // 内部无需返回消息,通过修改frame实现返回消息
-func (e *Engine) handleProductionMessage(frame *proto.TransferFrame, r *tcp.Remote) (bool, error) {
-	if !e.IsProducerRegister(r.Addr()) {
-		// 返回令客户端重新注册命令
+func (e *Engine) handlePMessage(frame *proto.TransferFrame, r *tcp.Remote) (bool, error) {
+	producer, exist := e.QueryProducer(r.Addr())
+
+	if !exist {
 		e.Logger().Debug("found unregister producer, let re-register: ", r.Addr())
-		e.LetReRegister(r)
-		return false, ErrProducerNotRegister
+
+		// 重新发起注册暂无消息体
+		frame.Type = proto.ReRegisterMessageType
+		frame.Data = []byte{}
+
+		// 返回令客户端重新注册命令
+		return true, nil
 	}
 
-	// 会存在多个消息封装为一个帧
+	// 存在多个消息封装为一个帧
 	pms := make([]*proto.PMessage, 0)
 	stream := bytes.NewReader(frame.Data)
 
 	// 循环解析生产者消息
 	var err error
 	for err == nil && stream.Len() > 0 {
-		pm := mp.GetPM()
+		pm := cpmp.GetPM()
 		err = pm.ParseFrom(stream)
 		if err == nil {
 			pms = append(pms, pm)
+		} else {
+			cpmp.PutPM(pm)
 		}
 	}
 
@@ -409,8 +444,7 @@ func (e *Engine) handleProductionMessage(frame *proto.TransferFrame, r *tcp.Remo
 		offset = e.Publisher(pm)
 	}
 
-	consumer := e.consumers[r.Index()]
-	if consumer != nil && consumer.NeedConfirm() {
+	if producer.NeedConfirm() {
 		// 需要返回确认消息给客户端
 		resp := &proto.MessageResponse{
 			Result:      true,
@@ -424,12 +458,9 @@ func (e *Engine) handleProductionMessage(frame *proto.TransferFrame, r *tcp.Remo
 		}
 		frame.Type = proto.MessageRespType
 		frame.Data = _bytes
-		return true, nil
-
-	} else {
-		// 不需要返回值
-		return false, nil
 	}
+
+	return producer.NeedConfirm(), nil
 }
 
 // BindMessageHandler 绑定一个自实现的协议处理器,
@@ -472,7 +503,7 @@ func (e *Engine) Run() {
 	e.init()
 
 	go func() {
-		err := e.transfer.Start()
+		err := e.transfer.Serve()
 		if err != nil {
 			e.Logger().Error("server starts failed: ", err)
 			os.Exit(1)
@@ -516,9 +547,6 @@ func New(cs ...Config) *Engine {
 		producerSendInterval: 500 * time.Millisecond,
 		cpLock:               &sync.RWMutex{},
 	}
-
-	eng.transfer = &Transfer{logger: conf.Logger, mq: eng}
-	eng.transfer.SetEngine(eng)
 
 	return eng
 }

@@ -22,14 +22,15 @@ func NewFramePool() *FramePool {
 func NewCPMPool() *CPMPool {
 	p := &CPMPool{cpool: &sync.Pool{}, ppool: &sync.Pool{}}
 
-	p.cpool.New = func() any {
-		cm := &CMessage{PM: &PMessage{}}
-		cm.Reset()
-		return cm
-	}
 	p.ppool.New = func() any {
-		cm := &PMessage{}
+		pm := &PMessage{}
+		pm.Reset()
+		return pm
+	}
+	p.cpool.New = func() any {
+		cm := &CMessage{}
 		cm.Reset()
+		cm.PM = p.GetPM()
 		return cm
 	}
 
@@ -82,13 +83,21 @@ type CPMPool struct {
 	ppool *sync.Pool
 }
 
+// GetCM Attention: PM is nil
 func (p *CPMPool) GetCM() *CMessage {
 	v := p.cpool.Get().(*CMessage)
 	v.Reset()
+
 	return v
 }
 
 func (p *CPMPool) PutCM(v *CMessage) {
+	if v.PM != nil {
+		pm := v.PM
+		v.PM = nil // release PM
+		p.PutPM(pm)
+	}
+
 	v.Reset()
 	p.cpool.Put(v)
 }

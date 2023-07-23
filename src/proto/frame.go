@@ -32,6 +32,14 @@ func (f *TransferFrame) MarshalMethod() MarshalMethodType {
 	return BinaryMarshalMethod
 }
 
+func (f *TransferFrame) String() string {
+	return fmt.Sprintf(
+		"<frame:%s> [ CS::%d ] with %d bytes of payload",
+		GetDescriptor(f.Type).Text(), f.ParseChecksum(), len(f.Data),
+	)
+}
+
+// Parse 从字节序中解析数据帧
 func (f *TransferFrame) Parse(stream []byte) error {
 	return f.ParseFrom(bytes.NewReader(stream))
 }
@@ -66,35 +74,6 @@ func (f *TransferFrame) ParseFrom(reader io.Reader) error {
 	return nil
 }
 
-// TransferFrame.Data 字节序列说明, 无作用
-type _ struct {
-	pms []struct {
-		TopicLength byte
-		Topic       []byte
-		KeyLength   byte
-		Key         []byte
-		ValueLength uint16
-		Value       []byte
-	}
-	cms []struct {
-		TopicLength byte
-		Topic       []byte
-		KeyLength   byte
-		Key         []byte
-		ValueLength uint16
-		Value       []byte
-		Offset      uint64
-		ProductTime int64 // time.Time.Unix()
-	}
-}
-
-func (f *TransferFrame) String() string {
-	return fmt.Sprintf(
-		"<frame:%s> [ CS::%d ] with %d bytes of payload",
-		descriptors[f.Type].Text(), f.ParseChecksum(), len(f.Data),
-	)
-}
-
 // Length 获得帧总长
 func (f *TransferFrame) Length() int { return len(f.Data) + 7 }
 
@@ -117,8 +96,21 @@ func (f *TransferFrame) ParseChecksum() uint16 {
 	return binary.BigEndian.Uint16(f.Checksum)
 }
 
-// ParseTo 将帧消息解析成某一个具体的协议消息
-func (f *TransferFrame) ParseTo() (Message, error) {
+// Unmarshal 反序列化帧消息体
+func (f *TransferFrame) Unmarshal(msg Message) error {
+	var err error
+	// 针对不同的解析类型选择最优的解析方法
+	if msg.MarshalMethod() == BinaryMarshalMethod {
+		err = msg.ParseFrom(bytes.NewBuffer(f.Data))
+	} else {
+		err = msg.Parse(f.Data)
+	}
+
+	return err
+}
+
+// UnmarshalTo 将帧消息解析成某一个具体的协议消息
+func (f *TransferFrame) UnmarshalTo() (Message, error) {
 	// 将Data解析为具体的消息，返回指针
 	var msg Message
 	var err error
@@ -199,7 +191,7 @@ func (f *TransferFrame) Build() ([]byte, error) {
 	return content, nil
 }
 
-// io.Reader 接口实现
+// TODO: io.Reader 接口实现
 func (f *TransferFrame) Read(buf []byte) (int, error) {
 	return 0, nil
 }
