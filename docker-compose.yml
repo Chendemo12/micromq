@@ -11,9 +11,12 @@ services:
       - MAX_OPEN_SIZE=20
     ports:
       - "7270:7270"
+      - "7280:7280"
 
     deploy:
       resources:
         limits:
           cpus: '0.5'
-          memory: '512M'
+          memory: '128M'
+
+    restart: always
