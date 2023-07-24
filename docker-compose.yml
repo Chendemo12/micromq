@@ -1,0 +1,19 @@
+version: '3'
+services:
+  synshare-mq:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      - DEBUG=1
+      - LISTEN_PORT=7270
+      - DASHBOARD_LISTEN_PORT=7280
+      - MAX_OPEN_SIZE=20
+    ports:
+      - "7270:7270"
+
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: '512M'
