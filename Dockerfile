@@ -7,8 +7,9 @@ COPY . .
 
 # 编译可执行程序
 ENV GOPROXY=https://proxy.golang.com.cn,direct
+ENV CGO_ENABLED=0
 RUN go mod download
-RUN go build -o synshare-mq
+RUN go build -tags=jsoniter -ldflags="-s -w" -gcflags='-l -l -l -m' -o synshare-mq
 
 
 # 阶段二：构建最终镜像
