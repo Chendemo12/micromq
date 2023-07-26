@@ -17,7 +17,7 @@ FROM alpine:latest
 
 # 指定镜像名称和版本号
 LABEL maintainer="synshare-mq"
-LABEL version="0.2.1"
+LABEL version="0.2.2"
 
 # 复制编译后的可执行程序到最终镜像中
 COPY --from=builder /app/synshare-mq .
