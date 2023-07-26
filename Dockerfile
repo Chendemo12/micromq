@@ -15,6 +15,10 @@ RUN go build -tags=jsoniter -ldflags="-s -w" -gcflags='-l -l -l -m' -o synshare-
 # 阶段二：构建最终镜像
 FROM alpine:latest
 
+# 指定镜像名称和版本号
+LABEL maintainer="synshare-mq"
+LABEL version="0.2.1"
+
 # 复制编译后的可执行程序到最终镜像中
 COPY --from=builder /app/synshare-mq .
 

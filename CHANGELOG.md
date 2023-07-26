@@ -1,5 +1,11 @@
 # SYNSHARE_MQ
 
+## v0.2.1 - 20230726
+
+### Feat
+
+- update `functools:v0.2.0`
+
 ## v0.2.0 - 20230723
 
 ### Feat

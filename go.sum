@@ -40,8 +40,8 @@ github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03
 github.com/BurntSushi/xgb v0.0.0-20160522181843-27f122750802/go.mod h1:IVnqGOEym/WlBOVXweHU+Q+/VP0lqqI8lqeDx9IjBqo=
 github.com/Chendemo12/fastapi-tool v0.1.0 h1:p8GXH55aN/CjTthlhimDrA/hCQtKCKYPDlQN1I5z440=
 github.com/Chendemo12/fastapi-tool v0.1.0/go.mod h1:kSdfAFgGdinzN/9/DQzwN4FvAr3VZRrRZPX5W3EulSo=
-github.com/Chendemo12/functools v0.1.31 h1:G39ewv/friCBQ9uW1DTcg0s7Vq+uRX8UFKn2EmAZTEs=
-github.com/Chendemo12/functools v0.1.31/go.mod h1:vv5JlIzFgyhW9qB/6S+8E19KOUiF+8HF/dS3wZCsf1I=
+github.com/Chendemo12/functools v0.2.0 h1:0rtkrsIg+8AmX+GW8cGM2xNnSE05i8sfG60hooKK3t8=
+github.com/Chendemo12/functools v0.2.0/go.mod h1:vv5JlIzFgyhW9qB/6S+8E19KOUiF+8HF/dS3wZCsf1I=
 github.com/benbjohnson/clock v1.1.0 h1:Q92kusRqC1XV2MjkWETPvjJVqKetz1OzxZB7mHJLju8=
 github.com/census-instrumentation/opencensus-proto v0.2.1/go.mod h1:f6KPmirojxKA12rnyqOA5BBL4O983OfeGPqjHWSTneU=
 github.com/chzyer/logex v1.1.10/go.mod h1:+Ywpsq7O8HXn0nuIou7OrIPyXbp3wmkHB+jjWRnGsAI=
