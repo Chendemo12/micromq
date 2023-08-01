@@ -1,4 +1,4 @@
-# SYNSHARE_MQ
+# MICRO-MQ
 
 ## v0.2.2 - 20230726
 

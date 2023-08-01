@@ -2,7 +2,7 @@ package engine
 
 import (
 	"github.com/Chendemo12/functools/tcp"
-	"github.com/Chendemo12/synshare-mq/src/proto"
+	"github.com/Chendemo12/micromq/src/proto"
 )
 
 // EventHandler 事件触发器

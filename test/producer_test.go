@@ -3,7 +3,7 @@ package test
 import (
 	"context"
 	"github.com/Chendemo12/fastapi-tool/logger"
-	"github.com/Chendemo12/synshare-mq/sdk"
+	"github.com/Chendemo12/micromq/sdk"
 	"testing"
 	"time"
 )

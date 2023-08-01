@@ -2,8 +2,8 @@ package mq
 
 import (
 	"github.com/Chendemo12/fastapi-tool/logger"
-	"github.com/Chendemo12/synshare-mq/src/engine"
-	"github.com/Chendemo12/synshare-mq/src/proto"
+	"github.com/Chendemo12/micromq/src/engine"
+	"github.com/Chendemo12/micromq/src/proto"
 )
 
 type Config struct {

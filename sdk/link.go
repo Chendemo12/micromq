@@ -4,7 +4,7 @@ import (
 	"context"
 	"github.com/Chendemo12/fastapi-tool/logger"
 	"github.com/Chendemo12/functools/tcp"
-	"github.com/Chendemo12/synshare-mq/src/proto"
+	"github.com/Chendemo12/micromq/src/proto"
 )
 
 // Config 生产者和消费者配置参数

@@ -2,7 +2,7 @@ package engine
 
 import (
 	"github.com/Chendemo12/functools/tcp"
-	"github.com/Chendemo12/synshare-mq/src/proto"
+	"github.com/Chendemo12/micromq/src/proto"
 )
 
 type HookHandler func(frame *proto.TransferFrame, r *tcp.Remote) (bool, error)

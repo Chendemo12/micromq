@@ -2,7 +2,7 @@ package sdk
 
 import (
 	"errors"
-	"github.com/Chendemo12/synshare-mq/src/proto"
+	"github.com/Chendemo12/micromq/src/proto"
 	"time"
 )
 

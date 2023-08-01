@@ -3,7 +3,7 @@ package test
 import (
 	"github.com/Chendemo12/functools/environ"
 	"github.com/Chendemo12/functools/zaplog"
-	"github.com/Chendemo12/synshare-mq/src/engine"
+	"github.com/Chendemo12/micromq/src/engine"
 	"testing"
 )
 
@@ -13,7 +13,7 @@ func TestEngineEngine(t *testing.T) {
 	debug := environ.GetBool("DEBUG", false)
 
 	conf := &zaplog.Config{
-		Filename:   "synshare-mq",
+		Filename:   "micromq",
 		Level:      zaplog.WARNING,
 		Rotation:   10,
 		Retention:  5,

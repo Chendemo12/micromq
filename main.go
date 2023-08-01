@@ -3,7 +3,7 @@ package main
 import (
 	"github.com/Chendemo12/functools/environ"
 	"github.com/Chendemo12/functools/zaplog"
-	"github.com/Chendemo12/synshare-mq/src/mq"
+	"github.com/Chendemo12/micromq/src/mq"
 )
 
 func main() {
@@ -13,7 +13,7 @@ func main() {
 	debug := environ.GetBool("DEBUG", false)
 
 	conf := &zaplog.Config{
-		Filename:   "synshare-mq",
+		Filename:   "micromq",
 		Level:      zaplog.WARNING,
 		Rotation:   10,
 		Retention:  5,

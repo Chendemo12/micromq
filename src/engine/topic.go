@@ -2,7 +2,7 @@ package engine
 
 import (
 	"encoding/binary"
-	"github.com/Chendemo12/synshare-mq/src/proto"
+	"github.com/Chendemo12/micromq/src/proto"
 	"sync"
 	"time"
 )

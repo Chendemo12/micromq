@@ -7,7 +7,7 @@ import (
 	"github.com/Chendemo12/fastapi-tool/logger"
 	"github.com/Chendemo12/functools/python"
 	"github.com/Chendemo12/functools/tcp"
-	"github.com/Chendemo12/synshare-mq/src/proto"
+	"github.com/Chendemo12/micromq/src/proto"
 	"sync"
 	"sync/atomic"
 )

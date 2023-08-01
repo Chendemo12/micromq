@@ -2,7 +2,7 @@ package mq
 
 import (
 	"context"
-	"github.com/Chendemo12/synshare-mq/src/engine"
+	"github.com/Chendemo12/micromq/src/engine"
 )
 
 type MQ struct {

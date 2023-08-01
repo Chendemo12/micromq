@@ -1,4 +1,4 @@
-module github.com/Chendemo12/synshare-mq
+module github.com/Chendemo12/micromq
 
 go 1.20
 
