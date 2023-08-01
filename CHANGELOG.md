@@ -1,5 +1,11 @@
 # MICRO-MQ
 
+## v0.3.0 - 20230801
+
+## Breaking
+
+- rename `synshare-mq` to `micromq`
+
 ## v0.2.2 - 20230726
 
 ### Feat
