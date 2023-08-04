@@ -18,6 +18,7 @@ type DnsProducer struct {
 	Host           string `json:"host"`
 	Port           string `json:"port"`
 	Topic          string `json:"topic"`
+	Token          string `json:"token"`
 	ctx            context.Context
 	logger         logger.Iface
 	p              *sdk.Producer
@@ -28,18 +29,14 @@ type DnsProducer struct {
 func (p *DnsProducer) Send(fn func(r *sdk.ProducerMessage) error) {
 	err := p.p.Send(fn)
 	if err != nil {
-		p.logger.Warn("message send failed: %v", err)
+		p.logger.Warn("message send failed: ", err)
+	} else {
+		p.logger.Info("message sent")
 	}
-	p.logger.Info("message sent")
 }
 
 func (p *DnsProducer) tick() {
 	for {
-		if !p.p.IsConnected() {
-			time.Sleep(p.reportInterval * 4)
-			continue
-		}
-
 		select {
 		case <-p.ctx.Done():
 			return
@@ -66,6 +63,7 @@ func (p *DnsProducer) Start() error {
 		Ack:    sdk.AllConfirm,
 		Ctx:    p.ctx,
 		Logger: p.logger,
+		Token:  p.Token,
 	})
 	if err != nil {
 		return err
@@ -94,6 +92,7 @@ func TestSdkProducer(t *testing.T) {
 		Host:           "127.0.0.1",
 		Port:           "7270",
 		Topic:          "DNS_REPORT",
+		Token:          "12345678",
 		ctx:            ctx,
 		logger:         logger.NewDefaultLogger(),
 		reportInterval: 1000 * time.Millisecond,

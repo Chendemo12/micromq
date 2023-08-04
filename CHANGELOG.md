@@ -5,6 +5,7 @@
 ### Feat
 
 - `RegisterMessage`新增`token`字段以支持在注册时进行认证;
+- 同步修改sdk和test文件;
 
 ## v0.3.0 - 20230801
 

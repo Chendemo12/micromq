@@ -6,7 +6,11 @@ import (
 )
 
 func TestRegisterMessage(t *testing.T) {
-	msg := proto.NewCRegisterMessage("DDNS_REPORT", "DDNS_CHANGED")
+	msg := &proto.RegisterMessage{
+		Topics: []string{"DDNS_REPORT", "DDNS_CHANGED"},
+		Ack:    proto.AllConfirm,
+		Type:   proto.ConsumerLinkType,
+	}
 
 	bytes, err := msg.Build()
 	if err != nil {

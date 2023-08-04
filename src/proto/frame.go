@@ -59,7 +59,7 @@ func (f *TransferFrame) ParseFrom(reader io.Reader) error {
 
 	bc.i, bc.err = reader.Read(f.Data)
 	if bc.err != nil {
-		return fmt.Errorf("frame date read failed: %v", bc.err)
+		return bc.err
 	}
 	bc.i, bc.err = reader.Read(f.Checksum)
 	if bc.err != nil {

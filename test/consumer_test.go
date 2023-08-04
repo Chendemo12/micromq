@@ -13,6 +13,7 @@ type DnsConsumer struct {
 	sdk.ConsumerHandlerFunc
 	Host   string `json:"host"`
 	Port   string `json:"port"`
+	Token  string `json:"token"`
 	topics []string
 	ctx    context.Context
 	t      *testing.T
@@ -38,9 +39,12 @@ func (c *DnsConsumer) OnClosed() {
 
 func (c *DnsConsumer) Start() error {
 	con, err := sdk.NewAsyncConsumer(sdk.Config{
-		Host: c.Host,
-		Port: c.Port,
-		Ack:  sdk.AllConfirm,
+		Host:   c.Host,
+		Port:   c.Port,
+		Ack:    sdk.AllConfirm,
+		Ctx:    c.ctx,
+		Logger: nil,
+		Token:  c.Token,
 	}, c)
 
 	if err != nil {
@@ -57,6 +61,7 @@ func TestSdkConsumer(t *testing.T) {
 	consumer := &DnsConsumer{
 		Host:   "127.0.0.1",
 		Port:   "7270",
+		Token:  "12345678",
 		topics: []string{"DNS_REPORT", "DNS_UPDATE"},
 		ctx:    ctx,
 		t:      t,

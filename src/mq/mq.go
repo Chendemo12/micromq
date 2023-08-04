@@ -75,6 +75,7 @@ func New(cs ...Config) *MQ {
 		c.MaxOpenConn = cs[0].MaxOpenConn
 		c.BufferSize = cs[0].BufferSize
 		c.Crypto = cs[0].Crypto
+		c.Token = cs[0].Token
 		c.EventHandler = cs[0].EventHandler
 	} else {
 		c.Host = defaultConf.Host
@@ -84,6 +85,7 @@ func New(cs ...Config) *MQ {
 		c.MaxOpenConn = defaultConf.MaxOpenConn
 		c.BufferSize = defaultConf.BufferSize
 		c.Crypto = defaultConf.Crypto
+		c.Token = ""
 		c.EventHandler = defaultConf.EventHandler
 	}
 

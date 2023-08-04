@@ -14,7 +14,7 @@ func main() {
 	conf.DashboardPort = environ.GetString("DASHBOARD_LISTEN_PORT", "7280")
 	conf.MaxOpenConn = environ.GetInt("MAX_OPEN_SIZE", 50)
 	conf.Debug = environ.GetBool("DEBUG", false)
-	conf.Token = proto.CalcSHA256(environ.GetString("TOKEN", ""))
+	conf.Token = proto.CalcSHA(environ.GetString("TOKEN", ""))
 
 	zapConf := &zaplog.Config{
 		Filename:   conf.AppName,

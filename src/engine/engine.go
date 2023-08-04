@@ -344,6 +344,7 @@ func (e *Engine) handleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remote
 		status = proto.TokenIncorrectStatus
 	} else { // 密钥验证通过
 		switch msg.Type {
+
 		case proto.ProducerLinkType: // 注册生产者
 			e.cpLock.Lock() // 上个锁, 防止刚注册就断开
 
@@ -353,16 +354,15 @@ func (e *Engine) handleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remote
 					p.Conf = &ProducerConfig{Ack: msg.Ack, TickerInterval: e.ProducerSendInterval()}
 					p.Conn = r
 					status = proto.AcceptedStatus
-
 					return false
 				}
 				return true
 			})
-
 			e.cpLock.Unlock()
 
 		case proto.ConsumerLinkType: // 注册消费者
 			e.cpLock.Lock()
+
 			e.RangeConsumer(func(c *Consumer) bool {
 				if c.Addr == "" {
 					c.Addr = r.Addr()
@@ -373,14 +373,22 @@ func (e *Engine) handleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remote
 					for _, name := range msg.Topics {
 						e.GetTopic([]byte(name)).AddConsumer(c)
 					}
-
 					return false
 				}
 				return true
 			})
-
 			e.cpLock.Unlock()
 		}
+	}
+
+	// 输出日志
+	switch status {
+	case proto.TokenIncorrectStatus:
+		e.Logger().Info(r.Addr(), " has wrong token, refused.")
+	case proto.AcceptedStatus:
+		e.Logger().Info(fmt.Sprintf("<%s:%s> registered.", msg.Type, r.Addr()))
+	case proto.RefusedStatus:
+		e.Logger().Info(r.Addr(), " register refused.")
 	}
 
 	// 无论如何都需要构建返回值
@@ -396,8 +404,6 @@ func (e *Engine) handleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remote
 	if err != nil {
 		return false, fmt.Errorf("register response message build failed: %v", err)
 	}
-
-	e.Logger().Info(fmt.Sprintf("<%s:%s> registered", msg.Type, r.Addr()))
 
 	// 触发回调
 	if resp.Accepted() && msg.Type == proto.ProducerLinkType {
@@ -531,6 +537,7 @@ func New(cs ...Config) *Engine {
 		conf.BufferSize = cs[0].BufferSize
 		conf.Logger = cs[0].Logger
 		conf.Crypto = cs[0].Crypto
+		conf.Token = cs[0].Token
 		conf.EventHandler = cs[0].EventHandler
 	}
 

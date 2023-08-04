@@ -64,7 +64,7 @@ func (p *Producer) tick() {
 func (p *Producer) sendToServer() {
 	var rate byte = 2
 	for {
-		if !(p.isConnected.Load() && p.isRegister.Load()) { // 客户端未连接或注册失败
+		if !p.CanPublisher() { // 客户端未连接或注册失败
 			if rate > 10 {
 				rate = 2
 			}
@@ -135,12 +135,20 @@ func (p *Producer) handleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remo
 	case proto.RefusedStatus:
 		p.Logger().Warn("producer register refused")
 	case proto.TokenIncorrectStatus:
-		p.Logger().Warn("token incorrect")
+		p.Logger().Warn("token incorrect, register failed")
 	}
 }
 
-func (p *Producer) IsConnected() bool  { return p.isConnected.Load() }
+// IsConnected 与服务端是否连接成功
+func (p *Producer) IsConnected() bool { return p.isConnected.Load() }
+
+// IsRegistered 向服务端注册消费者是否成功
 func (p *Producer) IsRegistered() bool { return p.isRegister.Load() }
+
+// CanPublisher 是否可以向服务器发送消息
+func (p *Producer) CanPublisher() bool {
+	return p.isConnected.Load() && p.isRegister.Load()
+}
 
 func (p *Producer) Done() <-chan struct{} { return p.ctx.Done() }
 
@@ -229,6 +237,17 @@ func (p *Producer) Publisher(msg *proto.ProducerMessage) error {
 		p.PutRecord(msg)
 		return ErrTopicEmpty
 	}
+
+	if !p.IsConnected() {
+		p.PutRecord(msg)
+		return ErrProducerUnconnected
+	}
+	// 未注册成功，禁止发送消息
+	if !p.IsRegistered() {
+		p.PutRecord(msg)
+		return ErrProducerUnregistered
+	}
+
 	p.queue <- msg
 	return nil
 }
@@ -297,7 +316,7 @@ func NewProducer(conf Config, handlers ...ProducerHandler) *Producer {
 		Ack:    conf.Ack,
 		Ctx:    conf.Ctx,
 		Logger: conf.Logger,
-		Token:  proto.CalcSHA256(conf.Token),
+		Token:  proto.CalcSHA(conf.Token),
 	}
 	p := &Producer{
 		conf:         c.Clean(),
@@ -324,7 +343,12 @@ func NewProducer(conf Config, handlers ...ProducerHandler) *Producer {
 	}
 
 	frame := framePool.Get()
-	p.regFrameBytes, _ = frame.BuildFrom(proto.NewPRegisterMessage())
+	p.regFrameBytes, _ = frame.BuildFrom(&proto.RegisterMessage{
+		Topics: []string{},
+		Ack:    AllConfirm,
+		Type:   proto.ProducerLinkType,
+		Token:  p.conf.Token,
+	})
 	framePool.Put(frame)
 
 	return p

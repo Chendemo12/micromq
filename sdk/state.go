@@ -12,6 +12,10 @@ var emPool = proto.NewCPMPool()
 
 var ErrTopicEmpty = errors.New("topic is empty")
 var ErrConsumerHandlerIsNil = errors.New("consumer handler is nil")
+var ErrConsumerUnregistered = errors.New("consumer unregistered")
+var ErrConsumerUnconnected = errors.New("consumer unconnected")
+var ErrProducerUnregistered = errors.New("producer unregistered")
+var ErrProducerUnconnected = errors.New("producer unconnected")
 
 const (
 	DefaultProducerSendInterval = 500 * time.Millisecond

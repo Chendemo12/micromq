@@ -237,7 +237,7 @@ func NewConsumer(conf Config, handler ConsumerHandler) (*Consumer, error) {
 		Ack:    conf.Ack,
 		Ctx:    conf.Ctx,
 		Logger: conf.Logger,
-		Token:  proto.CalcSHA256(conf.Token),
+		Token:  proto.CalcSHA(conf.Token),
 	}
 	c.Clean()
 
@@ -246,6 +246,7 @@ func NewConsumer(conf Config, handler ConsumerHandler) (*Consumer, error) {
 		Topics: handler.Topics(),
 		Ack:    proto.AllConfirm,
 		Type:   proto.ConsumerLinkType,
+		Token:  c.Token,
 	}
 
 	_bytes, err := frame.BuildFrom(reporter)
