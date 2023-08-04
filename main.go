@@ -4,16 +4,20 @@ import (
 	"github.com/Chendemo12/functools/environ"
 	"github.com/Chendemo12/functools/zaplog"
 	"github.com/Chendemo12/micromq/src/mq"
+	"github.com/Chendemo12/micromq/src/proto"
 )
 
 func main() {
-	listenPort := environ.GetString("LISTEN_PORT", "7270")
-	dashboardPort := environ.GetString("DASHBOARD_LISTEN_PORT", "7280")
-	size := environ.GetInt("MAX_OPEN_SIZE", 50)
-	debug := environ.GetBool("DEBUG", false)
+	conf := mq.DefaultConf()
+	conf.AppName = environ.GetString("APP_NAME", "micromq")
+	conf.Port = environ.GetString("LISTEN_PORT", "7270")
+	conf.DashboardPort = environ.GetString("DASHBOARD_LISTEN_PORT", "7280")
+	conf.MaxOpenConn = environ.GetInt("MAX_OPEN_SIZE", 50)
+	conf.Debug = environ.GetBool("DEBUG", false)
+	conf.Token = proto.CalcSHA256(environ.GetString("TOKEN", ""))
 
-	conf := &zaplog.Config{
-		Filename:   "micromq",
+	zapConf := &zaplog.Config{
+		Filename:   conf.AppName,
 		Level:      zaplog.WARNING,
 		Rotation:   10,
 		Retention:  5,
@@ -21,16 +25,12 @@ func main() {
 		Compress:   false,
 	}
 
-	if debug {
-		conf.Level = zaplog.DEBUG
+	if conf.Debug {
+		zapConf.Level = zaplog.DEBUG
 	}
 
-	mqConf := mq.DefaultConf()
-	mqConf.Port = listenPort
-	mqConf.DashboardPort = dashboardPort
-	mqConf.MaxOpenConn = size
-	mqConf.Logger = zaplog.NewLogger(conf).Sugar()
+	handler := mq.New(conf)
+	handler.SetLogger(zaplog.NewLogger(zapConf).Sugar())
 
-	handler := mq.New(mqConf)
-	handler.Run()
+	handler.Serve()
 }

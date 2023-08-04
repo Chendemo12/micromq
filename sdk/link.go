@@ -14,6 +14,7 @@ type Config struct {
 	Ack    proto.AckType   `json:"ack"`
 	Ctx    context.Context `json:"-"` // 作用于生产者的父context，默认为 context.Background()
 	Logger logger.Iface    `json:"-"`
+	Token  string          `json:"-"`
 }
 
 func (c *Config) Clean() *Config {
@@ -44,6 +45,13 @@ type Link struct {
 
 func (l *Link) IsConsumer() bool { return l.Kind == proto.ConsumerLinkType }
 func (l *Link) IsProducer() bool { return l.Kind == proto.ProducerLinkType }
+
+func (l *Link) Close() error {
+	if l.client != nil {
+		return l.client.Stop()
+	}
+	return nil
+}
 
 // Connect 阻塞式连接
 func (l *Link) Connect() error {

@@ -243,19 +243,39 @@ func (m *CMessage) BuildTo(writer io.Writer) (int, error) {
 
 // ========================================== 消息响应协议定义 ==========================================
 
+type MessageResponseStatus string
+
+const (
+	AcceptedStatus       MessageResponseStatus = "0" // 已接受，正常状态
+	RefusedStatus        MessageResponseStatus = "1"
+	TokenIncorrectStatus MessageResponseStatus = "10" // 密钥不争取
+)
+
+func GetMessageResponseStatusText(status MessageResponseStatus) string {
+	switch status {
+	case AcceptedStatus:
+		return "Accepted"
+	case TokenIncorrectStatus:
+		return "TokenIncorrect"
+	}
+
+	return "Refused"
+}
+
 // MessageResponse 消息响应， P和C通用
 type MessageResponse struct {
-	Result      bool      `json:"result"` // 仅当 true 时才认为服务器接受了请求并下方了有效的参数
-	Offset      uint64    `json:"offset,omitempty"`
-	ReceiveTime time.Time `json:"receive_time,omitempty"`
+	// 仅当 AcceptedStatus 时才认为服务器接受了请求并下方了有效的参数
+	Status      MessageResponseStatus `json:"status"`
+	Offset      uint64                `json:"offset,omitempty"`
+	ReceiveTime time.Time             `json:"receive_time,omitempty"`
 	// 定时器间隔，单位ms，仅生产者有效，生产者需要按照此间隔发送帧消息
 	TickerInterval time.Duration `json:"ticker_duration"`
 }
 
 func (m *MessageResponse) String() string {
 	return fmt.Sprintf(
-		"<message:%s> with result: %t",
-		GetDescriptor(m.MessageType()).Text(), m.Result,
+		"<message:%s> with status: %s",
+		GetDescriptor(m.MessageType()).Text(), GetMessageResponseStatusText(m.Status),
 	)
 }
 
@@ -274,7 +294,7 @@ func (m *MessageResponse) MarshalMethod() MarshalMethodType {
 func (m *MessageResponse) Length() int { return 0 }
 
 func (m *MessageResponse) Reset() {
-	m.Result = false
+	m.Status = RefusedStatus
 	m.Offset = 0
 }
 
@@ -301,6 +321,8 @@ func (m *MessageResponse) BuildTo(writer io.Writer) (int, error) {
 	return mHelper.BuildTo(writer, m)
 }
 
+func (m *MessageResponse) Accepted() bool { return m.Status == AcceptedStatus }
+
 // ========================================== 消息注册协议定义 ==========================================
 
 // RegisterMessage 消息注册,适用于生产者和消费者
@@ -308,6 +330,7 @@ type RegisterMessage struct {
 	Topics []string `json:"topics"` // 对于生产者,无意义
 	Ack    AckType  `json:"ack"`
 	Type   LinkType `json:"type"`
+	Token  string   `json:"token,omitempty"` // 认证密钥的hash值，当此值不为空时强制有效
 }
 
 func (m *RegisterMessage) String() string {

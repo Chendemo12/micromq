@@ -2,6 +2,8 @@ package proto
 
 import (
 	"container/list"
+	"crypto/sha256"
+	"encoding/hex"
 	"github.com/Chendemo12/fastapi-tool/helper"
 	"io"
 	"sync"
@@ -170,6 +172,19 @@ func NewPRegisterMessage() *RegisterMessage {
 		Type:   ProducerLinkType,
 	}
 }
+
+// CalcSHA256 计算字符串的哈希值
+func CalcSHA256(str string) string {
+	h := sha256.New()
+
+	h.Write([]byte(str))
+	hashValue := h.Sum(nil)
+
+	// 将哈希值转换为16进制字符串输出
+	return hex.EncodeToString(hashValue)
+}
+
+// ----------------------------------------------------------------------------
 
 type mh struct{}
 

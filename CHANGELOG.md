@@ -1,5 +1,11 @@
 # MICRO-MQ
 
+## v0.3.1 - 20230804
+
+### Feat
+
+- `RegisterMessage`新增`token`字段以支持在注册时进行认证;
+
 ## v0.3.0 - 20230801
 
 ## Breaking

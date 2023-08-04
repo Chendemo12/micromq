@@ -17,6 +17,9 @@ type ProducerHandler interface {
 	OnRegistered()     // 阻塞调用
 	OnClose()          // 阻塞调用
 	OnRegisterExpire() // 阻塞调用
+	OnRegisterFailed() // （同步执行）当注册失败触发的事件
+	// OnNotImplementMessageType 当收到一个未实现的消息帧时触发的事件
+	OnNotImplementMessageType(frame *proto.TransferFrame, r *tcp.Remote)
 }
 
 // Producer 生产者, 通过 Send 发送的消息并非会立即投递给服务端
@@ -33,12 +36,14 @@ type Producer struct {
 	cancel        context.CancelFunc
 	handler       ProducerHandler
 	dingDong      chan struct{}
+	ackTime       time.Time
 }
 
 // 收到来自服务端的消息发送成功确认消息
 func (p *Producer) receiveFin() {
-	// TODO: ack 未实现
+	p.ackTime = time.Now()
 	if p.conf.Ack == proto.NoConfirm {
+		// TODO: ack 未实现
 	}
 }
 
@@ -59,7 +64,7 @@ func (p *Producer) tick() {
 func (p *Producer) sendToServer() {
 	var rate byte = 2
 	for {
-		if !p.isConnected.Load() { // 客户端未连接
+		if !(p.isConnected.Load() && p.isRegister.Load()) { // 客户端未连接或注册失败
 			if rate > 10 {
 				rate = 2
 			}
@@ -71,6 +76,7 @@ func (p *Producer) sendToServer() {
 		rate = 2 // 重置等待时间
 		select {
 		case <-p.ctx.Done():
+			p.Stop()
 			return
 
 		case <-p.dingDong:
@@ -112,12 +118,25 @@ func (p *Producer) modifyTick(interval time.Duration) {
 	}
 }
 
-func (p *Producer) handleRegisterMessage(frame *proto.TransferFrame) {
-	defer framePool.Put(frame)
+func (p *Producer) handleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remote) {
+	form := &proto.MessageResponse{}
+	err := frame.Unmarshal(form)
+	if err != nil {
+		p.Logger().Warn("register message response unmarshal failed: ", err.Error())
+		_ = p.ReRegister(r) // retry
+		return
+	}
 
-	// TODO: 后期应处理注册响应
-	p.isRegister.Store(true)
-	p.Logger().Info("producer register successfully")
+	// 处理注册响应, 目前由服务器保证重新注册等流程
+	switch form.Status {
+	case proto.AcceptedStatus:
+		p.isRegister.Store(true)
+		p.Logger().Info("producer register successfully")
+	case proto.RefusedStatus:
+		p.Logger().Warn("producer register refused")
+	case proto.TokenIncorrectStatus:
+		p.Logger().Warn("token incorrect")
+	}
 }
 
 func (p *Producer) IsConnected() bool  { return p.isConnected.Load() }
@@ -151,34 +170,45 @@ func (p *Producer) OnClosed(_ *tcp.Remote) error {
 	return nil
 }
 
+func (p *Producer) distribute(frame *proto.TransferFrame, r *tcp.Remote) {
+	switch frame.Type {
+	case proto.RegisterMessageRespType:
+		p.handleRegisterMessage(frame, r)
+
+	case proto.ReRegisterMessageType:
+		p.isRegister.Store(false)
+		p.Logger().Debug("sever let re-register")
+		p.handler.OnRegisterExpire()
+		_ = p.ReRegister(r)
+
+	case proto.MessageRespType:
+		p.receiveFin()
+
+	default: // 未识别的帧类型
+		p.handler.OnNotImplementMessageType(frame, r)
+	}
+}
+
 func (p *Producer) Handler(r *tcp.Remote) error {
 	if r.Len() < proto.FrameMinLength {
 		return proto.ErrMessageNotFull
 	}
 
 	frame := framePool.Get()
-	defer framePool.Put(frame)
+	err := frame.ParseFrom(r) // 此操作不应并发读取，避免消息2覆盖消息1的缓冲区
 
-	err := frame.ParseFrom(r)
-	if err != nil {
-		if errors.Is(err, io.EOF) {
-			return nil
+	// 异步执行，立刻读取下一条消息
+	go func(f *proto.TransferFrame, client *tcp.Remote, err error) { // 处理消息帧
+		defer framePool.Put(f)
+
+		if err != nil {
+			if !errors.Is(err, io.EOF) {
+				p.Logger().Warn(fmt.Errorf("producer parse frame failed: %v", err))
+			}
+		} else {
+			p.distribute(f, client)
 		}
-		return fmt.Errorf("producer parse frame failed: %v", err)
-	}
-
-	switch frame.Type {
-	case proto.RegisterMessageRespType:
-		p.handleRegisterMessage(frame)
-
-	case proto.ReRegisterMessageType:
-		p.Logger().Debug("sever let re-register")
-		p.handler.OnRegisterExpire()
-		return p.ReRegister(r)
-
-	case proto.MessageRespType:
-		p.receiveFin()
-	}
+	}(frame, r, err)
 
 	return nil
 }
@@ -228,10 +258,10 @@ func (p *Producer) Start() error {
 }
 
 func (p *Producer) Stop() {
+	p.isRegister.Store(false)
+	p.isConnected.Store(false)
 	p.cancel()
-	if p.link != nil && p.link.client != nil {
-		_ = p.link.client.Stop()
-	}
+	_ = p.link.Close()
 }
 
 // ==================================== methods shortcut ====================================
@@ -255,6 +285,9 @@ type emptyPHandler struct{}
 func (h emptyPHandler) OnRegistered()     {}
 func (h emptyPHandler) OnClose()          {}
 func (h emptyPHandler) OnRegisterExpire() {}
+func (h emptyPHandler) OnRegisterFailed() {}
+
+func (h emptyPHandler) OnNotImplementMessageType(frame *proto.TransferFrame, r *tcp.Remote) {}
 
 // NewProducer 创建异步生产者,需手动启动
 func NewProducer(conf Config, handlers ...ProducerHandler) *Producer {
@@ -264,6 +297,7 @@ func NewProducer(conf Config, handlers ...ProducerHandler) *Producer {
 		Ack:    conf.Ack,
 		Ctx:    conf.Ctx,
 		Logger: conf.Logger,
+		Token:  proto.CalcSHA256(conf.Token),
 	}
 	p := &Producer{
 		conf:         c.Clean(),

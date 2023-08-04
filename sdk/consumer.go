@@ -2,12 +2,14 @@ package sdk
 
 import (
 	"bytes"
+	"errors"
 	"fmt"
 	"github.com/Chendemo12/fastapi-tool/helper"
 	"github.com/Chendemo12/fastapi-tool/logger"
 	"github.com/Chendemo12/functools/python"
 	"github.com/Chendemo12/functools/tcp"
 	"github.com/Chendemo12/micromq/src/proto"
+	"io"
 	"sync"
 	"sync/atomic"
 )
@@ -15,17 +17,18 @@ import (
 type ConsumerHandler interface {
 	Topics() []string
 	Handler(record *proto.ConsumerMessage)
-	OnConnected() // （同步执行）当连接成功时,发出的信号, 此事件必须在执行完成之后才会进行后续的处理，因此需自行控制
-	OnClosed()    // （同步执行）当连接中断时,发出的信号, 此事件必须在执行完成之后才会进行重连操作（若有）
+	OnConnected()      // （同步执行）当连接成功时,发出的信号, 此事件必须在执行完成之后才会进行后续的处理，因此需自行控制
+	OnClosed()         // （同步执行）当连接中断时,发出的信号, 此事件必须在执行完成之后才会进行重连操作（若有）
+	OnRegisterFailed() // （同步执行）当注册失败触发的事件
 	// OnNotImplementMessageType 当收到一个未实现的消息帧时触发的事件
 	OnNotImplementMessageType(frame *proto.TransferFrame, r *tcp.Remote)
 }
 
 type ConsumerHandlerFunc struct{}
 
-func (c *ConsumerHandlerFunc) OnConnected() {}
-
-func (c *ConsumerHandlerFunc) OnClosed() {}
+func (c *ConsumerHandlerFunc) OnConnected()      {}
+func (c *ConsumerHandlerFunc) OnClosed()         {}
+func (c *ConsumerHandlerFunc) OnRegisterFailed() {}
 
 func (c *ConsumerHandlerFunc) OnNotImplementMessageType(frame *proto.TransferFrame, r *tcp.Remote) {}
 
@@ -89,21 +92,36 @@ func (c *Consumer) handleMessage(frame *proto.TransferFrame) {
 	}
 }
 
-func (c *Consumer) handleRegisterMessage(frame *proto.TransferFrame) {
-	// TODO: 后期应处理注册响应
-	c.isRegister.Store(true)
-	c.Logger().Info("consumer register successfully")
+func (c *Consumer) handleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remote) {
+	form := &proto.MessageResponse{}
+	err := frame.Unmarshal(form)
+	if err != nil {
+		c.Logger().Warn("register message response unmarshal failed: ", err.Error())
+		_ = c.ReRegister(r) // retry
+		return
+	}
+
+	// 处理注册响应, 目前由服务器保证重新注册等流程
+	switch form.Status {
+	case proto.AcceptedStatus:
+		c.isRegister.Store(true)
+		c.Logger().Info("consumer register successfully")
+	case proto.RefusedStatus:
+		c.Logger().Warn("consumer register refused")
+	case proto.TokenIncorrectStatus:
+		c.Logger().Warn("token incorrect")
+	}
 }
 
 func (c *Consumer) distribute(frame *proto.TransferFrame, r *tcp.Remote) {
 	switch frame.Type {
 
 	case proto.RegisterMessageRespType:
-		c.handleRegisterMessage(frame)
+		c.handleRegisterMessage(frame, r)
 
 	case proto.ReRegisterMessageType:
 		c.isRegister.Store(false)
-		framePool.Put(frame)
+		c.Logger().Debug("sever let re-register")
 		_ = c.ReRegister(r)
 
 	case proto.CMessageType:
@@ -159,7 +177,9 @@ func (c *Consumer) Handler(r *tcp.Remote) error {
 		defer framePool.Put(f)
 
 		if err != nil {
-			c.Logger().Warn(fmt.Errorf("server parse frame failed: %v", err))
+			if !errors.Is(err, io.EOF) {
+				c.Logger().Warn(fmt.Errorf("consumer parse frame failed: %v", err))
+			}
 		} else {
 			c.distribute(f, client)
 		}
@@ -183,6 +203,12 @@ func (c *Consumer) Start() error {
 	c.isConnected.Store(false)
 
 	return c.link.Connect()
+}
+
+func (c *Consumer) Stop() {
+	c.isRegister.Store(false)
+	c.isConnected.Store(false)
+	_ = c.link.Close()
 }
 
 // ==================================== methods shortcut ====================================
@@ -211,6 +237,7 @@ func NewConsumer(conf Config, handler ConsumerHandler) (*Consumer, error) {
 		Ack:    conf.Ack,
 		Ctx:    conf.Ctx,
 		Logger: conf.Logger,
+		Token:  proto.CalcSHA256(conf.Token),
 	}
 	c.Clean()
 
