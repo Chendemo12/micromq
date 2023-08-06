@@ -24,7 +24,7 @@ type TransferFrame struct {
 	Type     MessageType // Data 包含的消息类型
 	DataSize []byte      // 标识消息总长度,2个字节, Data 的长度, 同样适用于多帧报文
 	Data     []byte      // 若干个消息
-	Checksum []byte      // Checksum 经典校验和算法,2个字节, Data 的校验和 TODO: 修改为[Type, Data] 的校验和
+	Checksum []byte      // Checksum 经典校验和算法,2个字节, Data 的校验和
 	Tail     byte        // 恒为 FrameTail
 }
 

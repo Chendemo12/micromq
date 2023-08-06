@@ -9,12 +9,13 @@ import (
 )
 
 type MQ struct {
-	conf     *Config
-	ctx      context.Context
-	cancel   context.CancelFunc
-	engine   *engine.Engine
-	transfer engine.Transfer
-	logger   logger.Iface
+	conf        *Config
+	ctx         context.Context
+	cancel      context.CancelFunc
+	engine      *engine.Engine
+	transfer    engine.Transfer
+	logger      logger.Iface
+	coreHandler engine.EventHandler // engine 各种事件触发器
 }
 
 func (m *MQ) SetLogger(logger logger.Iface) *MQ {
@@ -32,18 +33,19 @@ func (m *MQ) Serve() {
 		m.logger = logger.NewDefaultLogger()
 	}
 
+	m.coreHandler = &CoreEventHandler{}
 	m.engine = engine.New(engine.Config{
-		Host:         m.conf.Host,
-		Port:         m.conf.Port,
-		MaxOpenConn:  m.conf.MaxOpenConn,
-		BufferSize:   m.conf.BufferSize,
-		Logger:       m.Logger(),
-		Crypto:       m.conf.Crypto,
-		Token:        m.conf.Token,
-		EventHandler: m.conf.EventHandler,
+		Host:        m.conf.Host,
+		Port:        m.conf.Port,
+		MaxOpenConn: m.conf.MaxOpenConn,
+		BufferSize:  m.conf.BufferSize,
+		Logger:      m.Logger(),
+		Crypto:      m.conf.Crypto,
+		Token:       m.conf.Token,
 	})
 	m.transfer = &engine.TCPTransfer{}
 	m.engine.ReplaceTransfer(m.transfer)
+	m.engine.SetEventHandler(m.coreHandler)
 
 	quit := make(chan os.Signal, 1) // 关闭开关, buffered
 	signal.Notify(quit, os.Interrupt)
@@ -76,7 +78,6 @@ func New(cs ...Config) *MQ {
 		c.BufferSize = cs[0].BufferSize
 		c.Crypto = cs[0].Crypto
 		c.Token = cs[0].Token
-		c.EventHandler = cs[0].EventHandler
 	} else {
 		c.Host = defaultConf.Host
 		c.Port = defaultConf.Port
@@ -86,10 +87,9 @@ func New(cs ...Config) *MQ {
 		c.BufferSize = defaultConf.BufferSize
 		c.Crypto = defaultConf.Crypto
 		c.Token = ""
-		c.EventHandler = defaultConf.EventHandler
 	}
 
-	mq := &MQ{conf: c}
+	mq := &MQ{conf: c, coreHandler: &CoreEventHandler{}}
 	mq.ctx, mq.cancel = context.WithCancel(context.Background())
 
 	return mq

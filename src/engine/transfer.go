@@ -21,7 +21,7 @@ type Transfer interface {
 	SetOnReceivedHandler(fn func(frame *proto.TransferFrame, r *tcp.Remote))
 	// SetOnFrameParseErrorHandler 设置当客户端数据帧解析出错时的事件
 	SetOnFrameParseErrorHandler(fn func(frame *proto.TransferFrame, r *tcp.Remote))
-	Serve() error // 阻塞式启动TCP服务
+	Serve() error // 阻塞式启动服务
 	Stop()
 }
 

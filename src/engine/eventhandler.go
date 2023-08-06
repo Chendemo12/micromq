@@ -7,19 +7,19 @@ import (
 
 // EventHandler 事件触发器
 type EventHandler interface {
-	// OnFrameParseError 当来自客户端消息帧解析出错时触发的事件
+	// OnFrameParseError 当来自客户端消息帧解析出错时触发的事件(同步调用)
 	OnFrameParseError(frame *proto.TransferFrame, r *tcp.Remote)
-	// OnConsumerRegister 当消费者注册成功时触发的事件
+	// OnConsumerRegister 当消费者注册成功时触发的事件(异步调用)
 	OnConsumerRegister(addr string)
-	// OnProducerRegister 当生产者注册成功时触发的事件
+	// OnProducerRegister 当生产者注册成功时触发的事件(异步调用)
 	OnProducerRegister(addr string)
-	// OnConsumerClosed 当消费者关闭连接时触发的事件
+	// OnConsumerClosed 当消费者关闭连接时触发的事件(异步调用)
 	OnConsumerClosed(addr string)
-	// OnProducerClosed 当生产者关闭连接时触发的事件
+	// OnProducerClosed 当生产者关闭连接时触发的事件(异步调用)
 	OnProducerClosed(addr string)
-	// OnNotImplementMessageType 当收到一个未实现的消息帧时触发的事件
+	// OnNotImplementMessageType 当收到一个未实现的消息帧时触发的事件(同步调用)
 	OnNotImplementMessageType(frame *proto.TransferFrame, r *tcp.Remote) (bool, error)
-	// OnCMConsumed 当一个消费者被消费成功(成功发送给全部消费者)后时触发的事件
+	// OnCMConsumed 当一个消费者被消费成功(成功发送给全部消费者)后时触发的事件(同步调用)
 	OnCMConsumed(record *HistoryRecord)
 }
 
