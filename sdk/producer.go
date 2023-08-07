@@ -14,13 +14,34 @@ import (
 )
 
 type ProducerHandler interface {
-	OnRegistered()     // 阻塞调用
-	OnClose()          // 阻塞调用
-	OnRegisterExpire() // 阻塞调用
-	OnRegisterFailed() // （同步执行）当注册失败触发的事件
+	OnClose()                                            // 阻塞调用
+	OnRegistered()                                       // 阻塞调用
+	OnRegisterFailed(status proto.MessageResponseStatus) // 阻塞调用, 当注册失败触发的事件
+	OnRegisterExpire()                                   // 阻塞调用
 	// OnNotImplementMessageType 当收到一个未实现的消息帧时触发的事件
 	OnNotImplementMessageType(frame *proto.TransferFrame, r *tcp.Remote)
 }
+
+// PHandler 默认实现
+type PHandler struct {
+	logger logger.Iface
+}
+
+func (h PHandler) OnClose() {}
+
+func (h PHandler) OnRegistered() {
+	h.logger.Info("producer register successfully")
+}
+
+func (h PHandler) OnRegisterExpire() {
+	h.logger.Warn("producer register expire, retry")
+}
+
+func (h PHandler) OnRegisterFailed(status proto.MessageResponseStatus) {
+	h.logger.Warn("producer register failed: ", proto.GetMessageResponseStatusText(status))
+}
+
+func (h PHandler) OnNotImplementMessageType(frame *proto.TransferFrame, r *tcp.Remote) {}
 
 // Producer 生产者, 通过 Send 发送的消息并非会立即投递给服务端
 // 而是会按照服务器下发的配置定时批量发送消息,通常为500ms
@@ -131,11 +152,13 @@ func (p *Producer) handleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remo
 	switch form.Status {
 	case proto.AcceptedStatus:
 		p.isRegister.Store(true)
-		p.Logger().Info("producer register successfully")
+		p.handler.OnRegistered()
 	case proto.RefusedStatus:
-		p.Logger().Warn("producer register refused")
+		p.isRegister.Store(false)
+		p.handler.OnRegisterFailed(proto.RefusedStatus)
 	case proto.TokenIncorrectStatus:
-		p.Logger().Warn("token incorrect, register failed")
+		p.isRegister.Store(false)
+		p.handler.OnRegisterFailed(proto.TokenIncorrectStatus)
 	}
 }
 
@@ -299,15 +322,6 @@ func (p *Producer) Beautify(data []byte) string {
 	return helper.HexBeautify(data)
 }
 
-type emptyPHandler struct{}
-
-func (h emptyPHandler) OnRegistered()     {}
-func (h emptyPHandler) OnClose()          {}
-func (h emptyPHandler) OnRegisterExpire() {}
-func (h emptyPHandler) OnRegisterFailed() {}
-
-func (h emptyPHandler) OnNotImplementMessageType(frame *proto.TransferFrame, r *tcp.Remote) {}
-
 // NewProducer 创建异步生产者,需手动启动
 func NewProducer(conf Config, handlers ...ProducerHandler) *Producer {
 	c := &Config{
@@ -339,7 +353,7 @@ func NewProducer(conf Config, handlers ...ProducerHandler) *Producer {
 	if len(handlers) > 0 && handlers[0] != nil {
 		p.handler = handlers[0]
 	} else {
-		p.handler = &emptyPHandler{}
+		p.handler = &PHandler{logger: conf.Logger}
 	}
 
 	frame := framePool.Get()

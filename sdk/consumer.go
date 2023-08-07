@@ -24,13 +24,13 @@ type ConsumerHandler interface {
 	OnNotImplementMessageType(frame *proto.TransferFrame, r *tcp.Remote)
 }
 
-type ConsumerHandlerFunc struct{}
+type CHandler struct{}
 
-func (c *ConsumerHandlerFunc) OnConnected()      {}
-func (c *ConsumerHandlerFunc) OnClosed()         {}
-func (c *ConsumerHandlerFunc) OnRegisterFailed() {}
+func (c *CHandler) OnConnected()      {}
+func (c *CHandler) OnClosed()         {}
+func (c *CHandler) OnRegisterFailed() {}
 
-func (c *ConsumerHandlerFunc) OnNotImplementMessageType(frame *proto.TransferFrame, r *tcp.Remote) {}
+func (c *CHandler) OnNotImplementMessageType(frame *proto.TransferFrame, r *tcp.Remote) {}
 
 // ----------------------------------------------------------------------------
 

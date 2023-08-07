@@ -10,7 +10,7 @@ import (
 )
 
 type DnsConsumer struct {
-	sdk.ConsumerHandlerFunc
+	sdk.CHandler
 	Host   string `json:"host"`
 	Port   string `json:"port"`
 	Token  string `json:"token"`

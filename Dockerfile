@@ -17,7 +17,6 @@ FROM alpine:latest
 
 # 指定镜像名称和版本号
 LABEL maintainer="micromq"
-LABEL version="0.3.0"
 
 # 复制编译后的可执行程序到最终镜像中
 COPY --from=builder /app/micromq .
