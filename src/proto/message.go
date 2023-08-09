@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"github.com/Chendemo12/fastapi-tool/helper"
 	"io"
-	"time"
 )
 
 // ========================================== 生产者消息数据协议定义 ==========================================
@@ -241,7 +240,92 @@ func (m *CMessage) BuildTo(writer io.Writer) (int, error) {
 	return writer.Write(_bytes)
 }
 
-// ========================================== 消息响应协议定义 ==========================================
+// ========================================== 消息注册协议定义 ==========================================
+
+// RegisterMessage 消息注册,适用于生产者和消费者
+type RegisterMessage struct {
+	Topics []string `json:"topics"` // 对于生产者,无意义
+	Ack    AckType  `json:"ack"`
+	Type   LinkType `json:"type"`
+	Token  string   `json:"token,omitempty"` // 认证密钥的hash值，当此值不为空时强制有效
+}
+
+func (m *RegisterMessage) String() string {
+	return fmt.Sprintf(
+		"<message:%s> %s with %s",
+		GetDescriptor(m.MessageType()).Text(), m.Type, m.Ack,
+	)
+}
+
+func (m *RegisterMessage) MessageType() MessageType { return RegisterMessageType }
+
+func (m *RegisterMessage) MarshalMethod() MarshalMethodType {
+	return JsonMarshalMethod
+}
+
+func (m *RegisterMessage) Length() int { return 0 }
+
+func (m *RegisterMessage) Reset() {}
+
+func (m *RegisterMessage) Parse(stream []byte) error {
+	return JsonMessageParse(stream, m)
+}
+
+// ParseFrom 从reader解析消息，此操作不够优化，应考虑使用 Parse 方法
+func (m *RegisterMessage) ParseFrom(reader io.Reader) error {
+	return JsonMessageParseFrom(reader, m)
+}
+
+func (m *RegisterMessage) Build() ([]byte, error) {
+	return JsonMessageBuild(m)
+}
+
+func (m *RegisterMessage) BuildTo(writer io.Writer) (int, error) {
+	return JsonMessageBuildTo(writer, m)
+}
+
+// ========================================== 协议定义 End ==========================================
+
+// HeartBeatMessage 心跳
+type HeartBeatMessage struct {
+	Type      LinkType `json:"type" description:"客户端类型"`
+	CreatedAt int64    `json:"created_at" description:"客户端创建时间戳"`
+}
+
+func (h *HeartBeatMessage) MessageType() MessageType {
+	return HeartbeatMessageType
+}
+
+func (h *HeartBeatMessage) MarshalMethod() MarshalMethodType {
+	return JsonMarshalMethod
+}
+
+func (h *HeartBeatMessage) String() string {
+	return fmt.Sprintf(
+		"<message:%s> from %s", GetDescriptor(h.MessageType()).Text(), h.Type,
+	)
+}
+
+func (h *HeartBeatMessage) Length() int { return 0 }
+func (h *HeartBeatMessage) Reset()      {}
+
+func (h *HeartBeatMessage) Parse(stream []byte) error {
+	return JsonMessageParse(stream, h)
+}
+
+func (h *HeartBeatMessage) ParseFrom(reader io.Reader) error {
+	return JsonMessageParseFrom(reader, h)
+}
+
+func (h *HeartBeatMessage) Build() ([]byte, error) {
+	return JsonMessageBuild(h)
+}
+
+func (h *HeartBeatMessage) BuildTo(writer io.Writer) (int, error) {
+	return JsonMessageBuildTo(writer, h)
+}
+
+// ========================================== 通用的消息响应协议定义 ==========================================
 
 type MessageResponseStatus string
 
@@ -266,10 +350,13 @@ func GetMessageResponseStatusText(status MessageResponseStatus) string {
 type MessageResponse struct {
 	// 仅当 AcceptedStatus 时才认为服务器接受了请求并下方了有效的参数
 	Status      MessageResponseStatus `json:"status"`
-	Offset      uint64                `json:"offset,omitempty"`
-	ReceiveTime time.Time             `json:"receive_time,omitempty"`
+	Offset      uint64                `json:"offset"`
+	ReceiveTime int64                 `json:"receive_time"`
 	// 定时器间隔，单位ms，仅生产者有效，生产者需要按照此间隔发送帧消息
-	TickerInterval time.Duration `json:"ticker_duration"`
+	TickerInterval int `json:"ticker_duration"`
+	// 消费者需要按照此参数，在此周期内向服务端发送心跳
+	// 生产者在此周期内若没有数据产生，也应发送心跳
+	Keepalive int `json:"keepalive"`
 }
 
 func (m *MessageResponse) String() string {
@@ -314,66 +401,16 @@ func (m *MessageResponse) ParseFrom(reader io.Reader) error {
 }
 
 func (m *MessageResponse) Build() ([]byte, error) {
-	return mHelper.Build(m)
+	return JsonMessageBuild(m)
 }
 
 func (m *MessageResponse) BuildTo(writer io.Writer) (int, error) {
-	return mHelper.BuildTo(writer, m)
+	return JsonMessageBuildTo(writer, m)
 }
 
 func (m *MessageResponse) Accepted() bool { return m.Status == AcceptedStatus }
 
-// ========================================== 消息注册协议定义 ==========================================
-
-// RegisterMessage 消息注册,适用于生产者和消费者
-type RegisterMessage struct {
-	Topics []string `json:"topics"` // 对于生产者,无意义
-	Ack    AckType  `json:"ack"`
-	Type   LinkType `json:"type"`
-	Token  string   `json:"token,omitempty"` // 认证密钥的hash值，当此值不为空时强制有效
-}
-
-func (m *RegisterMessage) String() string {
-	return fmt.Sprintf(
-		"<message:%s> %s with %s",
-		GetDescriptor(m.MessageType()).Text(), m.Type, m.Ack,
-	)
-}
-
-func (m *RegisterMessage) MessageType() MessageType { return RegisterMessageType }
-
-func (m *RegisterMessage) MarshalMethod() MarshalMethodType {
-	return JsonMarshalMethod
-}
-
-func (m *RegisterMessage) Length() int { return 0 }
-
-func (m *RegisterMessage) Reset() {}
-
-func (m *RegisterMessage) Parse(stream []byte) error {
-	return helper.JsonUnmarshal(stream, m)
-}
-
-// ParseFrom 从reader解析消息，此操作不够优化，应考虑使用 Parse 方法
-func (m *RegisterMessage) ParseFrom(reader io.Reader) error {
-	_bytes := make([]byte, 65526)
-	n, err := reader.Read(_bytes)
-	if err != nil && !errors.Is(err, io.EOF) {
-		return err
-	}
-
-	return helper.JsonUnmarshal(_bytes[:n], m)
-}
-
-func (m *RegisterMessage) Build() ([]byte, error) {
-	return mHelper.Build(m)
-}
-
-func (m *RegisterMessage) BuildTo(writer io.Writer) (int, error) {
-	return mHelper.BuildTo(writer, m)
-}
-
-// ========================================== 协议定义 ==========================================
+// ========================================== 协议定义 End ==========================================
 
 type NotImplementMessage struct{}
 

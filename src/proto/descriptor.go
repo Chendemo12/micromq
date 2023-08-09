@@ -92,4 +92,11 @@ func init() {
 		text:        "ConsumerMessage",
 		userDefined: false,
 	}
+
+	descriptors[CMessageType] = &Descriptor{
+		code:        HeartbeatMessageType,
+		message:     &HeartBeatMessage{}, // no payload
+		text:        "HeartbeatMessage",
+		userDefined: false,
+	}
 }

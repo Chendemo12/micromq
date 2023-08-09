@@ -2,6 +2,7 @@ package engine
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"github.com/Chendemo12/fastapi-tool/logger"
@@ -10,6 +11,8 @@ import (
 	"sync"
 	"time"
 )
+
+func (e *Engine) Ctx() context.Context { return e.conf.Ctx }
 
 func (e *Engine) Logger() logger.Iface { return e.conf.Logger }
 
@@ -180,6 +183,9 @@ func (e *Engine) ProducerSendInterval() time.Duration {
 	return e.producerSendInterval
 }
 
+// HeartbeatInterval 心跳周期间隔
+func (e *Engine) HeartbeatInterval() int { return 30 }
+
 // BindMessageHandler 绑定一个自实现的协议处理器,
 //
 //	参数m为实现了 proto.Message 接口的协议,
@@ -229,6 +235,8 @@ func (e *Engine) IsTokenCorrect(token string) bool {
 // Serve 阻塞运行
 func (e *Engine) Serve() error {
 	e.beforeServe()
+	e.scheduler.Run()
+
 	return e.transfer.Serve()
 }
 

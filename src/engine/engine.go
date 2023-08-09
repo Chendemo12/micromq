@@ -2,7 +2,9 @@ package engine
 
 import (
 	"bytes"
+	"context"
 	"fmt"
+	"github.com/Chendemo12/fastapi-tool/cronjob"
 	"github.com/Chendemo12/fastapi-tool/logger"
 	"github.com/Chendemo12/functools/tcp"
 	"github.com/Chendemo12/micromq/src/proto"
@@ -19,7 +21,8 @@ type Config struct {
 	Crypto           proto.Crypto `json:"-"` // 加密器
 	Token            string       `json:"-"` // 注册认证密钥
 	EventHandler     EventHandler // 事件触发器
-	topicHistorySize int          // topic 历史缓存大小
+	Ctx              context.Context
+	topicHistorySize int // topic 历史缓存大小
 }
 
 func (c *Config) Clean() *Config {
@@ -38,7 +41,10 @@ func (c *Config) Clean() *Config {
 	}
 
 	if c.EventHandler == nil {
-		c.EventHandler = emptyEventHandler{}
+		c.EventHandler = DefaultEventHandler{}
+	}
+	if c.Ctx == nil {
+		c.Ctx = context.Background()
 	}
 	c.topicHistorySize = 100
 
@@ -51,13 +57,13 @@ type Engine struct {
 	consumers            []*Consumer // 消费者
 	topics               *sync.Map
 	transfer             Transfer
-	producerSendInterval time.Duration // 生产者发送消息的时间间隔 = 500ms
-	cpLock               *sync.RWMutex // consumer producer add/remove lock
-	// 各种协议的处理者
-	hooks        [proto.TotalNumberOfMessages]*Hook
-	registerFlow []FlowHandler
-	pmFlow       []FlowHandler
-	argsPool     *sync.Pool
+	producerSendInterval time.Duration                      // 生产者发送消息的时间间隔 = 500ms
+	cpLock               *sync.RWMutex                      // consumer producer add/remove lock
+	hooks                [proto.TotalNumberOfMessages]*Hook // 各种协议的处理者
+	registerFlow         []FlowHandler
+	pmFlow               []FlowHandler
+	argsPool             *sync.Pool
+	scheduler            *cronjob.Scheduler
 }
 
 func (e *Engine) beforeServe() *Engine {
@@ -89,6 +95,13 @@ func (e *Engine) beforeServe() *Engine {
 			Conn:  nil,
 		}
 	}
+
+	// 监视器
+	e.scheduler = cronjob.NewScheduler(e.Ctx(), e.Logger())
+	e.scheduler.AddCronjob(
+		&KeepaliveMonitor{e: e},
+		&RegisterMonitor{e: e},
+	)
 
 	// 修改全局加解密器
 	proto.SetGlobalCrypto(e.conf.Crypto)
@@ -254,98 +267,6 @@ func (e *Engine) distribute(frame *proto.TransferFrame, r *tcp.Remote) {
 	}
 }
 
-// Deprecated:
-func (e *Engine) handleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remote) (bool, error) {
-	msg := &proto.RegisterMessage{}
-
-	err := frame.Unmarshal(msg)
-	if err != nil {
-		// 注册消息帧解析失败，令重新发起注册
-		frame.Type = proto.ReRegisterMessageType
-		frame.Data = []byte{} // 重新发起注册暂无消息体
-		return true, fmt.Errorf("register message parse failed, %v, let re-register: %s", err, r.Addr())
-	}
-
-	e.Logger().Debug(fmt.Sprintf("receive '%s' from  %s", msg, r.Addr()))
-
-	status := proto.RefusedStatus
-	if e.NeedToken() && e.conf.Token != msg.Token {
-		// 需要认证，但是密钥不正确
-		status = proto.TokenIncorrectStatus
-	} else { // 密钥验证通过
-		switch msg.Type {
-
-		case proto.ProducerLinkType: // 注册生产者
-			e.cpLock.Lock() // 上个锁, 防止刚注册就断开
-
-			e.RangeProducer(func(p *Producer) bool {
-				if p.Addr == "" { // 记录生产者, 用于判断其后是否要返回消息投递后的确认消息
-					p.Addr = r.Addr()
-					p.Conf = &ProducerConfig{Ack: msg.Ack, TickerInterval: e.ProducerSendInterval()}
-					p.Conn = r
-					status = proto.AcceptedStatus
-					return false
-				}
-				return true
-			})
-			e.cpLock.Unlock()
-
-		case proto.ConsumerLinkType: // 注册消费者
-			e.cpLock.Lock()
-
-			e.RangeConsumer(func(c *Consumer) bool {
-				if c.Addr == "" {
-					c.Addr = r.Addr()
-					c.Conf = &ConsumerConfig{Topics: msg.Topics, Ack: msg.Ack}
-					c.setConn(r)
-					status = proto.AcceptedStatus
-
-					for _, name := range msg.Topics {
-						e.GetTopic([]byte(name)).AddConsumer(c)
-					}
-					return false
-				}
-				return true
-			})
-			e.cpLock.Unlock()
-		}
-	}
-
-	// 输出日志
-	switch status {
-	case proto.TokenIncorrectStatus:
-		e.Logger().Info(r.Addr(), " has wrong token, refused.")
-	case proto.AcceptedStatus:
-		e.Logger().Info(fmt.Sprintf("<%s:%s> registered.", msg.Type, r.Addr()))
-	case proto.RefusedStatus:
-		e.Logger().Info(r.Addr(), " register refused.")
-	}
-
-	// 无论如何都需要构建返回值
-	resp := &proto.MessageResponse{
-		Status:         status,
-		Offset:         0,
-		ReceiveTime:    time.Now(),
-		TickerInterval: e.ProducerSendInterval(),
-	}
-	frame.Type = proto.RegisterMessageRespType
-	frame.Data, err = resp.Build()
-
-	if err != nil {
-		return false, fmt.Errorf("register response message build failed: %v", err)
-	}
-
-	// 触发回调
-	if resp.Accepted() && msg.Type == proto.ProducerLinkType {
-		go e.EventHandler().OnProducerRegister(r.Addr())
-	}
-	if resp.Accepted() && msg.Type == proto.ConsumerLinkType {
-		go e.EventHandler().OnConsumerRegister(r.Addr())
-	}
-
-	return true, nil
-}
-
 // 处理注册消息, 内部无需返回消息,通过修改frame实现返回消息
 func (e *Engine) registerHandler(frame *proto.TransferFrame, r *tcp.Remote) (bool, error) {
 	args := e.getArgs(frame, r)
@@ -400,7 +321,7 @@ func (e *Engine) handlePMessage(frame *proto.TransferFrame, r *tcp.Remote) (bool
 		resp := &proto.MessageResponse{
 			Status:      proto.AcceptedStatus,
 			Offset:      offset,
-			ReceiveTime: time.Now(),
+			ReceiveTime: time.Now().Unix(),
 		}
 		_bytes, err2 := resp.Build()
 		if err2 != nil {

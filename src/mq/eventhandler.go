@@ -6,7 +6,9 @@ import (
 	"github.com/Chendemo12/micromq/src/proto"
 )
 
-type CoreEventHandler struct{}
+type CoreEventHandler struct {
+	engine.DefaultEventHandler
+}
 
 func (e CoreEventHandler) OnFrameParseError(_ *proto.TransferFrame, _ *tcp.Remote) {}
 

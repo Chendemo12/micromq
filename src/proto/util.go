@@ -5,6 +5,7 @@ import (
 	"crypto/sha1"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"github.com/Chendemo12/fastapi-tool/helper"
 	"io"
 	"sync"
@@ -18,66 +19,6 @@ type NoCopy struct{}
 
 func (*NoCopy) Lock()   {}
 func (*NoCopy) Unlock() {}
-
-// Deprecated: BuildPMessages 构造生产者消息序列
-// TODO: 改为 io.Writer
-func BuildPMessages(pms ...*PMessage) (slice []byte) {
-	//		TopicLength byte
-	//		Topic       []byte
-	//		KeyLength   byte
-	//		Key         []bytes
-	//		ValueLength uint16
-	//		Value       []byte
-	sliceLength := 0
-	for _, m := range pms {
-		sliceLength += 4 // TopicLength + KeyLength + ValueLength
-		sliceLength += len(m.Topic)
-		sliceLength += len(m.Key)
-		sliceLength += len(m.Value)
-	}
-	slice = make([]byte, 0, sliceLength) // 分配最大长度
-
-	for _, m := range pms {
-		slice = append(slice, byte(len(m.Topic)))
-		slice = append(slice, m.Topic...)
-		slice = append(slice, byte(len(m.Key)))
-		slice = append(slice, m.Key...)
-		slice = append(slice, byte(len(m.Value)))
-		slice = append(slice, m.Value...)
-	}
-
-	return slice
-}
-
-// Deprecated:BuildCMessages 构造消产者消息序列
-// TODO: 改为 io.Writer
-func BuildCMessages(cms ...*CMessage) (slice []byte) {
-	//		TopicLength byte
-	//		Topic       []byte
-	//		KeyLength   byte
-	//		Key         []byte
-	//		ValueLength uint16
-	//		Value       []byte
-	//		Offset      uint64
-	//		ProductTime int64 // time.Time.Unix()
-	sliceLength := 0
-	for _, m := range cms {
-		sliceLength += m.Length()
-	}
-	slice = make([]byte, 0, sliceLength) // 分配最大长度
-
-	for _, m := range cms {
-		slice = append(slice, byte(len(m.PM.Topic)))
-		slice = append(slice, m.PM.Topic...)
-		slice = append(slice, byte(len(m.PM.Key)))
-		slice = append(slice, m.PM.Key...)
-		slice = append(slice, byte(len(m.PM.Value)))
-		slice = append(slice, m.PM.Value...)
-		slice = append(slice, m.Offset[:7]...)
-		slice = append(slice, m.ProductTime[:7]...)
-	}
-	return slice
-}
 
 // CalcChecksum 经典校验和算法
 func CalcChecksum(data []byte) uint16 {
@@ -190,16 +131,14 @@ func CalcSHA1(str string) string {
 
 // ----------------------------------------------------------------------------
 
-type mh struct{}
-
-func (b mh) Build(m Message) ([]byte, error) {
+func JsonMessageBuild(m Message) ([]byte, error) {
 	if m.MarshalMethod() == JsonMarshalMethod {
 		return helper.JsonMarshal(m)
 	}
 	return m.Build()
 }
 
-func (b mh) BuildTo(writer io.Writer, m Message) (int, error) {
+func JsonMessageBuildTo(writer io.Writer, m Message) (int, error) {
 	_bytes, err := m.Build()
 	if err != nil {
 		return 0, err
@@ -207,4 +146,17 @@ func (b mh) BuildTo(writer io.Writer, m Message) (int, error) {
 	return writer.Write(_bytes)
 }
 
-var mHelper = &mh{}
+func JsonMessageParse(stream []byte, m Message) error {
+	return helper.JsonUnmarshal(stream, m)
+}
+
+// JsonMessageParseFrom 从reader解析消息，此操作不够优化，应考虑使用 Parse 方法
+func JsonMessageParseFrom(reader io.Reader, m Message) error {
+	_bytes := make([]byte, 65526)
+	n, err := reader.Read(_bytes)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return err
+	}
+
+	return helper.JsonUnmarshal(_bytes[:n], m)
+}

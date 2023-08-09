@@ -17,23 +17,36 @@ type EventHandler interface {
 	OnConsumerClosed(addr string)
 	// OnProducerClosed 当生产者关闭连接时触发的事件(异步调用)
 	OnProducerClosed(addr string)
+	// OnConsumerHeartbeatTimeout 当消费者心跳超时触发的事件(异步调用)
+	OnConsumerHeartbeatTimeout(event TimeoutEvent)
+	// OnProducerHeartbeatTimeout 当生产者心跳超时时触发的事件(异步调用)
+	OnProducerHeartbeatTimeout(event TimeoutEvent)
+	// OnConsumerRegisterTimeout 当消费者连接成功后不注册引发的超时事件(异步调用)
+	OnConsumerRegisterTimeout(event TimeoutEvent)
+	// OnProducerRegisterTimeout 当消生产者连接成功后不注册引发的超时事件(异步调用)
+	OnProducerRegisterTimeout(event TimeoutEvent)
 	// OnNotImplementMessageType 当收到一个未实现的消息帧时触发的事件(同步调用)
 	OnNotImplementMessageType(frame *proto.TransferFrame, r *tcp.Remote) (bool, error)
 	// OnCMConsumed 当一个消费者被消费成功(成功发送给全部消费者)后时触发的事件(同步调用)
 	OnCMConsumed(record *HistoryRecord)
 }
 
-type emptyEventHandler struct{}
+type DefaultEventHandler struct{}
 
-func (e emptyEventHandler) OnFrameParseError(_ *proto.TransferFrame, _ *tcp.Remote) {}
+func (e DefaultEventHandler) OnFrameParseError(_ *proto.TransferFrame, _ *tcp.Remote) {}
 
-func (e emptyEventHandler) OnConsumerRegister(_ string) {}
-func (e emptyEventHandler) OnProducerRegister(_ string) {}
-func (e emptyEventHandler) OnConsumerClosed(_ string)   {}
-func (e emptyEventHandler) OnProducerClosed(_ string)   {}
+func (e DefaultEventHandler) OnConsumerRegister(_ string) {}
+func (e DefaultEventHandler) OnProducerRegister(_ string) {}
+func (e DefaultEventHandler) OnConsumerClosed(_ string)   {}
+func (e DefaultEventHandler) OnProducerClosed(_ string)   {}
 
-func (e emptyEventHandler) OnCMConsumed(record *HistoryRecord) {}
+func (e DefaultEventHandler) OnConsumerHeartbeatTimeout(event TimeoutEvent) {}
+func (e DefaultEventHandler) OnProducerHeartbeatTimeout(event TimeoutEvent) {}
+func (e DefaultEventHandler) OnConsumerRegisterTimeout(event TimeoutEvent)  {}
+func (e DefaultEventHandler) OnProducerRegisterTimeout(event TimeoutEvent)  {}
 
-func (e emptyEventHandler) OnNotImplementMessageType(frame *proto.TransferFrame, r *tcp.Remote) (bool, error) {
+func (e DefaultEventHandler) OnCMConsumed(_ *HistoryRecord) {}
+
+func (e DefaultEventHandler) OnNotImplementMessageType(frame *proto.TransferFrame, r *tcp.Remote) (bool, error) {
 	return emptyHookHandler(frame, r)
 }

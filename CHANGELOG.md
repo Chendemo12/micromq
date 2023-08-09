@@ -1,5 +1,15 @@
 # MICRO-MQ
 
+## v0.3.1-pre4 - 20230809
+
+### Refactor
+
+- rename `engine.emptyEventHandler` to `engine.DefaultEventHandler`;
+
+### Feat
+
+- 新增心跳保活，客户端需要按照`ResponseMessage`中的参数发送心跳。
+
 ## v0.3.1-pre3 - 20230808
 
 ### Feat

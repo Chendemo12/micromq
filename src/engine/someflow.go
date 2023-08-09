@@ -29,8 +29,9 @@ func (e *Engine) registerAuth(args *ChainArgs) (stop bool) {
 	args.resp = &proto.MessageResponse{
 		Status:         proto.RefusedStatus,
 		Offset:         0,
-		ReceiveTime:    time.Now(),
-		TickerInterval: e.ProducerSendInterval(),
+		ReceiveTime:    time.Now().Unix(),
+		TickerInterval: int(e.ProducerSendInterval()),
+		Keepalive:      e.HeartbeatInterval(),
 	}
 
 	e.Logger().Debug(fmt.Sprintf("receive '%s' from  %s", args.rm, args.r.Addr()))
@@ -88,13 +89,15 @@ func (e *Engine) registerAllow(args *ChainArgs) (stop bool) {
 	return
 }
 
+// 触发回调
 func (e *Engine) registerCallback(args *ChainArgs) (stop bool) {
-	// 触发回调
-	if args.resp.Accepted() && args.rm.Type == proto.ProducerLinkType {
-		go e.EventHandler().OnProducerRegister(args.r.Addr())
-	}
-	if args.resp.Accepted() && args.rm.Type == proto.ConsumerLinkType {
-		go e.EventHandler().OnConsumerRegister(args.r.Addr())
+	if args.resp.Accepted() {
+		switch args.rm.Type {
+		case proto.ProducerLinkType:
+			go e.EventHandler().OnProducerRegister(args.r.Addr())
+		case proto.ConsumerLinkType:
+			go e.EventHandler().OnConsumerRegister(args.r.Addr())
+		}
 	}
 
 	return
@@ -163,7 +166,7 @@ func (e *Engine) pmPublisher(args *ChainArgs) (stop bool) {
 		args.resp = &proto.MessageResponse{
 			Status:      proto.AcceptedStatus,
 			Offset:      offset,
-			ReceiveTime: time.Now(),
+			ReceiveTime: time.Now().Unix(),
 		}
 	}
 
