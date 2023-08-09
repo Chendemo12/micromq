@@ -1,5 +1,16 @@
 # MICRO-MQ
 
+## v0.3.1-pre3 - 20230808
+
+### Feat
+
+- 引入`fastapi`服务；
+- 增加`edge`接口，允许通过`HTTP`接口向Broker发送生产者消息；
+
+## Breaking
+
+- 修改`MQ`相关环境变量为`BROKER`名称；
+
 ## v0.3.1 - 20230806
 
 ### Feat

@@ -9,12 +9,15 @@ import (
 
 func main() {
 	conf := mq.DefaultConf()
+
 	conf.AppName = environ.GetString("APP_NAME", "micromq")
-	conf.Port = environ.GetString("LISTEN_PORT", "7270")
-	conf.DashboardPort = environ.GetString("DASHBOARD_LISTEN_PORT", "7280")
+	conf.BrokerHost = environ.GetString("BROKER_LISTEN_HOST", "0.0.0.0")
+	conf.BrokerPort = environ.GetString("BROKER_LISTEN_PORT", "7270")
+	conf.HttpPort = environ.GetString("DASHBOARD_LISTEN_PORT", "7280")
 	conf.MaxOpenConn = environ.GetInt("MAX_OPEN_SIZE", 50)
 	conf.Debug = environ.GetBool("DEBUG", false)
-	conf.Token = proto.CalcSHA(environ.GetString("TOKEN", ""))
+	conf.BrokerToken = proto.CalcSHA(environ.GetString("BROKER_TOKEN", ""))
+	conf.Version = VERSION
 
 	zapConf := &zaplog.Config{
 		Filename:   conf.AppName,

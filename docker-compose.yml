@@ -6,11 +6,21 @@ services:
       dockerfile: Dockerfile
     environment:
       - DEBUG=1
-      - LISTEN_PORT=7270
+      - BROKER_LISTEN_PORT=7270
       - DASHBOARD_LISTEN_PORT=7280
       - MAX_OPEN_SIZE=20
+      - BROKER_TOKEN=${BROKER_TOKEN}
     ports:
       - "7270:7270"
+
+    env_file:
+      - .env
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m" # 限制每个日志文件大小
+        max-file: "15" # 保留最近日志文件天数
 
     deploy:
       resources:

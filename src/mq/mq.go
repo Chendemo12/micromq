@@ -2,20 +2,44 @@ package mq
 
 import (
 	"context"
+	"github.com/Chendemo12/fastapi"
 	"github.com/Chendemo12/fastapi-tool/logger"
 	"github.com/Chendemo12/micromq/src/engine"
 	"os"
-	"os/signal"
 )
 
 type MQ struct {
-	conf        *Config
-	ctx         context.Context
-	cancel      context.CancelFunc
-	engine      *engine.Engine
-	transfer    engine.Transfer
-	logger      logger.Iface
-	coreHandler engine.EventHandler // engine 各种事件触发器
+	conf          *Config
+	ctx           context.Context
+	cancel        context.CancelFunc
+	broker        *engine.Engine
+	transfer      engine.Transfer
+	faster        *fastapi.FastApi
+	logger        logger.Iface
+	brokerHandler engine.EventHandler // broker 各种事件触发器
+}
+
+func (m *MQ) Config() any { return m.conf }
+
+func (m *MQ) Logger() logger.Iface { return m.logger }
+
+func (m *MQ) Ctx() context.Context { return m.ctx }
+
+func (m *MQ) initBroker() *MQ {
+	m.brokerHandler = &CoreEventHandler{}
+	m.broker = engine.New(engine.Config{
+		Host:        m.conf.BrokerHost,
+		Port:        m.conf.BrokerPort,
+		MaxOpenConn: m.conf.MaxOpenConn,
+		BufferSize:  m.conf.BufferSize,
+		Logger:      m.Logger(),
+		Crypto:      m.conf.Crypto,
+		Token:       m.conf.BrokerToken,
+	})
+	m.transfer = &engine.TCPTransfer{}
+	m.broker.ReplaceTransfer(m.transfer)
+	m.broker.SetEventHandler(m.brokerHandler)
+	return m
 }
 
 func (m *MQ) SetLogger(logger logger.Iface) *MQ {
@@ -23,73 +47,87 @@ func (m *MQ) SetLogger(logger logger.Iface) *MQ {
 	return m
 }
 
-func (m *MQ) Logger() logger.Iface { return m.logger }
-
-func (m *MQ) Ctx() context.Context { return m.ctx }
-
 // Serve 阻塞启动
 func (m *MQ) Serve() {
 	if m.logger == nil {
 		m.logger = logger.NewDefaultLogger()
 	}
 
-	m.coreHandler = &CoreEventHandler{}
-	m.engine = engine.New(engine.Config{
-		Host:        m.conf.Host,
-		Port:        m.conf.Port,
-		MaxOpenConn: m.conf.MaxOpenConn,
-		BufferSize:  m.conf.BufferSize,
-		Logger:      m.Logger(),
-		Crypto:      m.conf.Crypto,
-		Token:       m.conf.Token,
-	})
-	m.transfer = &engine.TCPTransfer{}
-	m.engine.ReplaceTransfer(m.transfer)
-	m.engine.SetEventHandler(m.coreHandler)
-
-	quit := make(chan os.Signal, 1) // 关闭开关, buffered
-	signal.Notify(quit, os.Interrupt)
+	// 初始化服务
+	m.initBroker()
 
 	go func() {
-		err := m.engine.Serve()
+		err := m.broker.Serve()
 		if err != nil {
-			m.Logger().Error("server starts failed: ", err)
+			m.Logger().Error("broker starts failed: ", err)
 			os.Exit(1)
 		}
 	}()
 
-	<-quit // 阻塞进程，直到接收到停止信号,准备关闭程序
-	m.Stop()
+	m.initHttp()
+	m.faster.Run(m.conf.HttpHost, m.conf.HttpPort)
 }
 
 func (m *MQ) Stop() {
 	m.cancel()
-	m.engine.Stop()
+	m.broker.Stop()
+	m.faster.Shutdown()
+}
+
+func GetString(s, d string) string {
+	if s != "" {
+		return s
+	}
+
+	return d
+}
+
+func GetInt(s, d int) int {
+	if s != 0 {
+		return s
+	}
+
+	return d
 }
 
 func New(cs ...Config) *MQ {
-	c := &Config{}
-	if len(cs) > 0 {
-		c.Host = cs[0].Host
-		c.Port = cs[0].Port
-		c.DashboardHost = cs[0].DashboardHost
-		c.DashboardPort = cs[0].DashboardPort
-		c.MaxOpenConn = cs[0].MaxOpenConn
-		c.BufferSize = cs[0].BufferSize
-		c.Crypto = cs[0].Crypto
-		c.Token = cs[0].Token
-	} else {
-		c.Host = defaultConf.Host
-		c.Port = defaultConf.Port
-		c.DashboardHost = defaultConf.DashboardHost
-		c.DashboardPort = defaultConf.DashboardPort
-		c.MaxOpenConn = defaultConf.MaxOpenConn
-		c.BufferSize = defaultConf.BufferSize
-		c.Crypto = defaultConf.Crypto
-		c.Token = ""
+	conf := &Config{
+		AppName:     defaultConf.AppName,
+		Version:     "v1.0.0",
+		BrokerHost:  defaultConf.BrokerHost,
+		BrokerPort:  defaultConf.BrokerPort,
+		HttpHost:    defaultConf.HttpHost,
+		HttpPort:    defaultConf.HttpPort,
+		EdgeEnabled: true,
+		MaxOpenConn: defaultConf.MaxOpenConn,
+		BufferSize:  defaultConf.BufferSize,
+		Debug:       false,
+		Crypto:      defaultConf.Crypto,
+		BrokerToken: "",
 	}
 
-	mq := &MQ{conf: c, coreHandler: &CoreEventHandler{}}
+	if len(cs) > 0 {
+		conf.AppName = GetString(cs[0].AppName, conf.AppName)
+		conf.Version = GetString(cs[0].Version, conf.Version)
+		conf.BrokerHost = GetString(cs[0].BrokerHost, conf.BrokerHost)
+		conf.BrokerPort = GetString(cs[0].BrokerPort, conf.BrokerPort)
+		conf.HttpHost = GetString(cs[0].HttpHost, conf.HttpHost)
+		conf.HttpPort = GetString(cs[0].HttpPort, conf.HttpPort)
+		conf.MaxOpenConn = GetInt(cs[0].MaxOpenConn, conf.MaxOpenConn)
+		conf.BufferSize = GetInt(cs[0].BufferSize, conf.BufferSize)
+		conf.BrokerToken = GetString(cs[0].BrokerToken, conf.BrokerToken)
+		conf.Debug = cs[0].Debug
+
+		if cs[0].EdgeEnabled {
+			conf.EdgeEnabled = true
+		}
+
+		if cs[0].Crypto != nil {
+			conf.Crypto = cs[0].Crypto
+		}
+	}
+
+	mq := &MQ{conf: conf, brokerHandler: &CoreEventHandler{}}
 	mq.ctx, mq.cancel = context.WithCancel(context.Background())
 
 	return mq
