@@ -34,7 +34,7 @@ func (e *Engine) registerAuth(args *ChainArgs) (stop bool) {
 		Keepalive:      e.HeartbeatInterval(),
 	}
 
-	e.Logger().Debug(fmt.Sprintf("receive '%s' from  %s", args.rm, args.con.Addr()))
+	e.Logger().Info(fmt.Sprintf("receive '%s' from  %s", args.rm, args.con.Addr()))
 
 	if !e.IsTokenCorrect(args.rm.Token) {
 		// 需要认证，但是密钥不正确
@@ -49,19 +49,24 @@ func (e *Engine) registerAuth(args *ChainArgs) (stop bool) {
 
 // 密钥验证通过, 寻找空闲空间
 func (e *Engine) registerAllow(args *ChainArgs) (stop bool) {
-	switch args.rm.Type {
+	// 记录注册时间戳
+	v, ok := e.timeInfo.Load(args.con.Addr())
+	if ok {
+		info := v.(*TimeInfo)
+		info.RegisteredAt = time.Now().Unix()
+	}
 
+	switch args.rm.Type {
 	case proto.ProducerLinkType:
 		e.cpLock.Lock() // 上个锁, 防止刚注册就断开
 		if i := e.findProducerSlot(); i != -1 {
 			// 记录生产者, 用于判断其后是否要返回消息投递后的确认消息
 			producer := e.producers[i]
-			producer.Addr = args.con.Addr()
+			producer.SetConn(args.con)
 			producer.Conf = &ProducerConfig{
 				Ack:            args.rm.Ack,
 				TickerInterval: e.ProducerSendInterval(),
 			}
-			producer.Conn = args.con
 
 			args.resp.Status = proto.AcceptedStatus
 			args.producer = producer
@@ -73,19 +78,17 @@ func (e *Engine) registerAllow(args *ChainArgs) (stop bool) {
 		e.cpLock.Lock()
 		if i := e.findConsumerSlot(); i != -1 {
 			c := e.consumers[i]
-			c.Addr = args.con.Addr()
+			c.SetConn(args.con)
 			c.Conf = &ConsumerConfig{Topics: args.rm.Topics, Ack: args.rm.Ack}
-			c.setConn(args.con)
-			args.resp.Status = proto.AcceptedStatus
 
 			for _, name := range args.rm.Topics {
 				e.GetTopic([]byte(name)).AddConsumer(c)
 			}
+			args.resp.Status = proto.AcceptedStatus
 		}
 
 		e.cpLock.Unlock()
 	}
-
 	return
 }
 

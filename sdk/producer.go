@@ -35,13 +35,9 @@ func (h PHandler) OnRegistered() {
 	h.logger.Info("producer register successfully")
 }
 
-func (h PHandler) OnRegisterExpire() {
-	h.logger.Warn("producer register expire, retry")
-}
+func (h PHandler) OnRegisterExpire() {}
 
-func (h PHandler) OnRegisterFailed(status proto.MessageResponseStatus) {
-	h.logger.Warn("producer register failed: ", proto.GetMessageResponseStatusText(status))
-}
+func (h PHandler) OnRegisterFailed(status proto.MessageResponseStatus) {}
 
 func (h PHandler) OnNotImplementMessageType(frame *proto.TransferFrame, r transfer.Conn) {}
 
@@ -151,6 +147,12 @@ func (p *Producer) handleRegisterMessage(frame *proto.TransferFrame, r transfer.
 	}
 
 	// 处理注册响应, 目前由服务器保证重新注册等流程
+	if form.Status == proto.AcceptedStatus {
+		p.Logger().Info("producer register successfully")
+	} else {
+		p.Logger().Warn("producer register failed: ", proto.GetMessageResponseStatusText(form.Status))
+	}
+
 	switch form.Status {
 	case proto.AcceptedStatus:
 		p.isRegister.Store(true)
@@ -193,7 +195,7 @@ func (p *Producer) distribute(frame *proto.TransferFrame, r transfer.Conn) {
 
 	case proto.ReRegisterMessageType:
 		p.isRegister.Store(false)
-		p.Logger().Debug("sever let re-register")
+		p.Logger().Warn("producer register expire, sever let re-register.")
 		p.handler.OnRegisterExpire()
 		_ = p.ReRegister(r)
 

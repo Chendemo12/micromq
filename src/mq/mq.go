@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/Chendemo12/fastapi"
 	"github.com/Chendemo12/fastapi-tool/logger"
+	"github.com/Chendemo12/functools/python"
 	"github.com/Chendemo12/micromq/src/engine"
 	"github.com/Chendemo12/micromq/src/transfer"
 	"os"
@@ -29,13 +30,14 @@ func (m *MQ) Ctx() context.Context { return m.ctx }
 func (m *MQ) initBroker() *MQ {
 	m.brokerHandler = &CoreEventHandler{}
 	m.broker = engine.New(engine.Config{
-		Host:        m.conf.BrokerHost,
-		Port:        m.conf.BrokerPort,
-		MaxOpenConn: m.conf.MaxOpenConn,
-		BufferSize:  m.conf.BufferSize,
-		Logger:      m.Logger(),
-		Crypto:      m.conf.Crypto,
-		Token:       m.conf.BrokerToken,
+		Host:             m.conf.BrokerHost,
+		Port:             m.conf.BrokerPort,
+		MaxOpenConn:      m.conf.MaxOpenConn,
+		BufferSize:       m.conf.BufferSize,
+		Logger:           m.Logger(),
+		Crypto:           m.conf.Crypto,
+		Token:            m.conf.BrokerToken,
+		HeartbeatTimeout: m.conf.BrokerHeartbeatTimeout,
 	})
 	m.transfer = &transfer.TCPTransfer{}
 	m.broker.ReplaceTransfer(m.transfer)
@@ -75,22 +77,6 @@ func (m *MQ) Stop() {
 	m.faster.Shutdown()
 }
 
-func GetString(s, d string) string {
-	if s != "" {
-		return s
-	}
-
-	return d
-}
-
-func GetInt(s, d int) int {
-	if s != 0 {
-		return s
-	}
-
-	return d
-}
-
 func New(cs ...Config) *MQ {
 	conf := &Config{
 		AppName:     defaultConf.AppName,
@@ -108,15 +94,15 @@ func New(cs ...Config) *MQ {
 	}
 
 	if len(cs) > 0 {
-		conf.AppName = GetString(cs[0].AppName, conf.AppName)
-		conf.Version = GetString(cs[0].Version, conf.Version)
-		conf.BrokerHost = GetString(cs[0].BrokerHost, conf.BrokerHost)
-		conf.BrokerPort = GetString(cs[0].BrokerPort, conf.BrokerPort)
-		conf.HttpHost = GetString(cs[0].HttpHost, conf.HttpHost)
-		conf.HttpPort = GetString(cs[0].HttpPort, conf.HttpPort)
-		conf.MaxOpenConn = GetInt(cs[0].MaxOpenConn, conf.MaxOpenConn)
-		conf.BufferSize = GetInt(cs[0].BufferSize, conf.BufferSize)
-		conf.BrokerToken = GetString(cs[0].BrokerToken, conf.BrokerToken)
+		conf.AppName = python.GetS(cs[0].AppName, conf.AppName)
+		conf.Version = python.GetS(cs[0].Version, conf.Version)
+		conf.BrokerHost = python.GetS(cs[0].BrokerHost, conf.BrokerHost)
+		conf.BrokerPort = python.GetS(cs[0].BrokerPort, conf.BrokerPort)
+		conf.HttpHost = python.GetS(cs[0].HttpHost, conf.HttpHost)
+		conf.HttpPort = python.GetS(cs[0].HttpPort, conf.HttpPort)
+		conf.MaxOpenConn = python.GetI[int](cs[0].MaxOpenConn, conf.MaxOpenConn)
+		conf.BufferSize = python.GetI[int](cs[0].BufferSize, conf.BufferSize)
+		conf.BrokerToken = python.GetS(cs[0].BrokerToken, conf.BrokerToken)
 		conf.Debug = cs[0].Debug
 
 		if cs[0].EdgeEnabled {

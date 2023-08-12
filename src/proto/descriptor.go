@@ -95,7 +95,7 @@ func init() {
 
 	descriptors[HeartbeatMessageType] = &Descriptor{
 		code:        HeartbeatMessageType,
-		message:     &HeartBeatMessage{},
+		message:     &HeartbeatMessage{},
 		text:        "HeartbeatMessage",
 		userDefined: false,
 	}

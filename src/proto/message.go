@@ -286,43 +286,43 @@ func (m *RegisterMessage) BuildTo(writer io.Writer) (int, error) {
 
 // ========================================== 协议定义 End ==========================================
 
-// HeartBeatMessage 心跳
-type HeartBeatMessage struct {
+// HeartbeatMessage 心跳
+type HeartbeatMessage struct {
 	Type      LinkType `json:"type" description:"客户端类型"`
 	CreatedAt int64    `json:"created_at" description:"客户端创建时间戳"`
 }
 
-func (h *HeartBeatMessage) MessageType() MessageType {
+func (h *HeartbeatMessage) MessageType() MessageType {
 	return HeartbeatMessageType
 }
 
-func (h *HeartBeatMessage) MarshalMethod() MarshalMethodType {
+func (h *HeartbeatMessage) MarshalMethod() MarshalMethodType {
 	return JsonMarshalMethod
 }
 
-func (h *HeartBeatMessage) String() string {
+func (h *HeartbeatMessage) String() string {
 	return fmt.Sprintf(
 		"<message:%s> from %s", GetDescriptor(h.MessageType()).Text(), h.Type,
 	)
 }
 
-func (h *HeartBeatMessage) Length() int { return 0 }
+func (h *HeartbeatMessage) Length() int { return 0 }
 
-func (h *HeartBeatMessage) Reset() {}
+func (h *HeartbeatMessage) Reset() {}
 
-func (h *HeartBeatMessage) Parse(stream []byte) error {
+func (h *HeartbeatMessage) Parse(stream []byte) error {
 	return JsonMessageParse(stream, h)
 }
 
-func (h *HeartBeatMessage) ParseFrom(reader io.Reader) error {
+func (h *HeartbeatMessage) ParseFrom(reader io.Reader) error {
 	return JsonMessageParseFrom(reader, h)
 }
 
-func (h *HeartBeatMessage) Build() ([]byte, error) {
+func (h *HeartbeatMessage) Build() ([]byte, error) {
 	return JsonMessageBuild(h)
 }
 
-func (h *HeartBeatMessage) BuildTo(writer io.Writer) (int, error) {
+func (h *HeartbeatMessage) BuildTo(writer io.Writer) (int, error) {
 	return JsonMessageBuildTo(writer, h)
 }
 
@@ -357,7 +357,7 @@ type MessageResponse struct {
 	TickerInterval int `json:"ticker_duration"`
 	// 消费者需要按照此参数，在此周期内向服务端发送心跳
 	// 生产者在此周期内若没有数据产生，也应发送心跳
-	Keepalive int `json:"keepalive"`
+	Keepalive float64 `json:"keepalive"`
 }
 
 func (m *MessageResponse) String() string {

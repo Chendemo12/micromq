@@ -5,7 +5,7 @@ go 1.20
 require (
 	github.com/Chendemo12/fastapi v0.1.3
 	github.com/Chendemo12/fastapi-tool v0.1.0
-	github.com/Chendemo12/functools v0.2.0
+	github.com/Chendemo12/functools v0.2.1
 )
 
 require (

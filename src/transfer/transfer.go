@@ -35,7 +35,8 @@ type Transfer interface {
 	SetOnReceivedHandler(fn func(frame *proto.TransferFrame, c Conn))
 	// SetOnFrameParseErrorHandler 设置当客户端数据帧解析出错时的事件
 	SetOnFrameParseErrorHandler(fn func(frame *proto.TransferFrame, c Conn))
-	Serve() error // 阻塞式启动服务
+	Close(addr string) error // 主动关闭一个客户端连接
+	Serve() error            // 阻塞式启动服务
 	Stop()
 }
 
@@ -105,7 +106,7 @@ func (t *TCPTransfer) SetOnFrameParseErrorHandler(fn func(frame *proto.TransferF
 }
 
 func (t *TCPTransfer) OnAccepted(r *tcp.Remote) error {
-	t.logger.Info(r.Addr(), " connected.")
+	t.logger.Debug(r.Addr(), " connected.")
 	t.onConnected(r)
 
 	return nil
@@ -114,7 +115,7 @@ func (t *TCPTransfer) OnAccepted(r *tcp.Remote) error {
 // OnClosed 连接关闭, 删除此连接的消费者记录或生产者记录
 func (t *TCPTransfer) OnClosed(r *tcp.Remote) error {
 	addr := r.Addr()
-	t.logger.Info(addr, " close connection.")
+	t.logger.Debug(addr, " close connection.")
 
 	t.onClosed(addr)
 	return nil
@@ -142,6 +143,10 @@ func (t *TCPTransfer) Handler(r *tcp.Remote) error {
 	}(frame, r, err)
 
 	return nil
+}
+
+func (t *TCPTransfer) Close(addr string) error {
+	return t.tcps.Close(addr)
 }
 
 // Serve 阻塞式启动TCP服务

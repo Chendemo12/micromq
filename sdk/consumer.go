@@ -104,14 +104,19 @@ func (c *Consumer) handleRegisterMessage(frame *proto.TransferFrame, con transfe
 	}
 
 	// 处理注册响应, 目前由服务器保证重新注册等流程
+	if form.Status == proto.AcceptedStatus {
+		c.Logger().Info("consumer register successfully")
+	} else {
+		c.Logger().Warn("consumer register failed: ", proto.GetMessageResponseStatusText(form.Status))
+	}
+
 	switch form.Status {
 	case proto.AcceptedStatus:
 		c.isRegister.Store(true)
-		c.Logger().Info("consumer register successfully")
 	case proto.RefusedStatus:
-		c.Logger().Warn("consumer register refused")
+		c.isRegister.Store(false)
 	case proto.TokenIncorrectStatus:
-		c.Logger().Warn("token incorrect")
+		c.isRegister.Store(false)
 	}
 }
 

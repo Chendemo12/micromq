@@ -1,7 +1,6 @@
 package engine
 
 import (
-	"bytes"
 	"context"
 	"fmt"
 	"github.com/Chendemo12/fastapi-tool/cronjob"
@@ -17,6 +16,7 @@ type Config struct {
 	Port             string       `json:"port"`
 	MaxOpenConn      int          `json:"max_open_conn"` // 允许的最大连接数, 即 生产者+消费者最多有 MaxOpenConn 个
 	BufferSize       int          `json:"buffer_size"`   // 生产者消息历史记录最大数量
+	HeartbeatTimeout float64      `json:"heartbeat_timeout"`
 	Logger           logger.Iface `json:"-"`
 	Crypto           proto.Crypto `json:"-"` // 加密器
 	Token            string       `json:"-"` // 注册认证密钥
@@ -51,8 +51,14 @@ func (c *Config) Clean() *Config {
 	return c
 }
 
+type TimeInfo struct {
+	ConnectedAt  int64 `json:"connected_at"`
+	RegisteredAt int64 `json:"registered_at"`
+}
+
 type Engine struct {
 	conf                 *Config
+	timeInfo             *sync.Map   // TODO: 优化一下
 	producers            []*Producer // 生产者
 	consumers            []*Consumer // 消费者
 	topics               *sync.Map
@@ -98,10 +104,7 @@ func (e *Engine) beforeServe() *Engine {
 
 	// 监视器
 	e.scheduler = cronjob.NewScheduler(e.Ctx(), e.Logger())
-	e.scheduler.AddCronjob(
-		&KeepaliveMonitor{e: e},
-		&RegisterMonitor{e: e},
-	)
+	e.scheduler.AddCronjob(&Monitor{e: e})
 
 	// 修改全局加解密器
 	proto.SetGlobalCrypto(e.conf.Crypto)
@@ -152,26 +155,33 @@ func (e *Engine) bindProtoHandler() *Engine {
 
 	// 生产者消息
 	e.hooks[proto.PMessageType].Type = proto.PMessageType
-	e.hooks[proto.PMessageType].Handler = e.handlePMessage
-	//e.hooks[proto.PMessageType].Handler = e.pmHandler
+	e.hooks[proto.PMessageType].Handler = e.pmHandler
 
 	return e
 }
 
 // 连接成功时不关联数据, 仅在注册成功时,关联到 Engine 中
-func (e *Engine) whenClientAccept(con transfer.Conn) {}
+func (e *Engine) whenClientAccept(con transfer.Conn) {
+	// 记录连接，用于判断是否连接成功后不注册
+	e.timeInfo.Store(con.Addr(), &TimeInfo{
+		ConnectedAt:  time.Now().Unix(),
+		RegisteredAt: 0,
+	})
+}
 
 // 连接关闭，删除记录
 func (e *Engine) whenClientClose(addr string) {
 	e.RemoveConsumer(addr)
 	e.RemoveProducer(addr)
+
+	e.timeInfo.Delete(addr)
 }
 
 // 查找一个空闲的 生产者槽位，若未找到则返回 -1，应在查找之前主动加锁
 func (e *Engine) findProducerSlot() int {
 	for i := 0; i < e.conf.MaxOpenConn; i++ {
 		// cannot be nil
-		if e.producers[i].Addr == "" {
+		if e.producers[i].IsFree() {
 			return i
 		}
 	}
@@ -181,7 +191,7 @@ func (e *Engine) findProducerSlot() int {
 // 查找一个空闲的 消费者槽位，若未找到则返回 -1，应在查找之前主动加锁
 func (e *Engine) findConsumerSlot() int {
 	for i := 0; i < e.conf.MaxOpenConn; i++ {
-		if e.consumers[i].Addr == "" {
+		if e.consumers[i].IsFree() {
 			return i
 		}
 	}
@@ -206,6 +216,15 @@ func (e *Engine) putArgs(args *ChainArgs) {
 	args.err = nil
 
 	e.argsPool.Put(args)
+}
+
+func (e *Engine) findTimeInfo(addr string) *TimeInfo {
+	v, ok := e.timeInfo.Load(addr)
+	if ok {
+		return v.(*TimeInfo)
+	}
+
+	return &TimeInfo{}
 }
 
 // 将一系列处理过程组合成一条链
@@ -273,66 +292,6 @@ func (e *Engine) registerHandler(frame *proto.TransferFrame, con transfer.Conn) 
 	args.rm = &proto.RegisterMessage{}
 
 	return e.handlerFlow(args, e.registerFlow)
-}
-
-// Deprecated:
-func (e *Engine) handlePMessage(frame *proto.TransferFrame, con transfer.Conn) (bool, error) {
-	producer, exist := e.QueryProducer(con.Addr())
-
-	if !exist {
-		e.Logger().Debug("found unregister producer, let re-register: ", con.Addr())
-
-		// 重新发起注册暂无消息体
-		frame.Type = proto.ReRegisterMessageType
-		frame.Data = []byte{}
-
-		// 返回令客户端重新注册命令
-		return true, nil
-	}
-
-	// 存在多个消息封装为一个帧
-	pms := make([]*proto.PMessage, 0)
-	stream := bytes.NewReader(frame.Data)
-
-	// 循环解析生产者消息
-	var err error
-	for err == nil && stream.Len() > 0 {
-		pm := cpmp.GetPM()
-		err = pm.ParseFrom(stream)
-		if err == nil {
-			pms = append(pms, pm)
-		} else {
-			cpmp.PutPM(pm)
-		}
-	}
-
-	if len(pms) < 1 {
-		return false, ErrPMNotFound
-	}
-
-	// 若是批量发送数据,则取最后一条消息的偏移量
-	var offset uint64 = 0
-	for _, pm := range pms {
-		offset = e.Publisher(pm)
-	}
-
-	if producer.NeedConfirm() {
-		// 需要返回确认消息给客户端
-		resp := &proto.MessageResponse{
-			Status:      proto.AcceptedStatus,
-			Offset:      offset,
-			ReceiveTime: time.Now().Unix(),
-		}
-		_bytes, err2 := resp.Build()
-		if err2 != nil {
-			e.Logger().Warn("response build failed: ", err2)
-			return false, fmt.Errorf("response build failed: %v", err2)
-		}
-		frame.Type = proto.MessageRespType
-		frame.Data = _bytes
-	}
-
-	return producer.NeedConfirm(), nil
 }
 
 // 处理生产者消息帧，此处需要判断生产者是否已注册

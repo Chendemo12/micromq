@@ -7,9 +7,11 @@ services:
     environment:
       - DEBUG=1
       - BROKER_LISTEN_PORT=7270
-      - DASHBOARD_LISTEN_PORT=7280
-      - MAX_OPEN_SIZE=20
+      - BROKER_MAX_OPEN_SIZE=20
       - BROKER_TOKEN=${BROKER_TOKEN}
+      - BROKER_HEARTBEAT_TIMEOUT=100
+      - HTTP_LISTEN_PORT=7280
+
     ports:
       - "7270:7270"
 

@@ -157,7 +157,7 @@ func (e *Engine) RemoveConsumer(addr string) {
 	}
 
 	c.reset()
-	e.Logger().Info(fmt.Sprintf("<%s:%s> removed", proto.ConsumerLinkType, addr))
+	e.Logger().Info(fmt.Sprintf("<%s:%s> removed.", proto.ConsumerLinkType, addr))
 	go e.EventHandler().OnConsumerClosed(addr)
 }
 
@@ -169,7 +169,7 @@ func (e *Engine) RemoveProducer(addr string) {
 	p, exist := e.QueryProducer(addr)
 	if exist {
 		p.reset()
-		e.Logger().Info(fmt.Sprintf("<%s:%s> removed", proto.ProducerLinkType, addr))
+		e.Logger().Debug(fmt.Sprintf("<%s:%s> removed.", proto.ProducerLinkType, addr))
 		go e.EventHandler().OnProducerClosed(addr)
 	}
 }
@@ -185,7 +185,12 @@ func (e *Engine) ProducerSendInterval() time.Duration {
 }
 
 // HeartbeatInterval 心跳周期间隔
-func (e *Engine) HeartbeatInterval() int { return 30 }
+func (e *Engine) HeartbeatInterval() float64 {
+	if e.conf.HeartbeatTimeout == 0 {
+		return 30
+	}
+	return e.conf.HeartbeatTimeout
+}
 
 // BindMessageHandler 绑定一个自实现的协议处理器,
 //
@@ -235,9 +240,13 @@ func (e *Engine) IsTokenCorrect(token string) bool {
 
 // Serve 阻塞运行
 func (e *Engine) Serve() error {
+	e.Logger().Info("engine starting...")
 	e.beforeServe()
 	e.scheduler.Run()
 
+	if e.NeedToken() {
+		e.Logger().Info("token authentication is enabled.")
+	}
 	return e.transfer.Serve()
 }
 
@@ -248,10 +257,11 @@ func (e *Engine) Stop() {
 // New 创建一个新的服务器
 func New(cs ...Config) *Engine {
 	conf := &Config{
-		Host:        "127.0.0.1",
-		Port:        "7270",
-		MaxOpenConn: 50,
-		BufferSize:  200,
+		Host:             "127.0.0.1",
+		Port:             "7270",
+		MaxOpenConn:      50,
+		BufferSize:       200,
+		HeartbeatTimeout: 60,
 	}
 	if len(cs) > 0 {
 		conf.Host = cs[0].Host
@@ -262,6 +272,7 @@ func New(cs ...Config) *Engine {
 		conf.Crypto = cs[0].Crypto
 		conf.Token = cs[0].Token
 		conf.EventHandler = cs[0].EventHandler
+		conf.HeartbeatTimeout = cs[0].HeartbeatTimeout
 	}
 
 	conf.Clean()
@@ -277,6 +288,7 @@ func New(cs ...Config) *Engine {
 		argsPool: &sync.Pool{
 			New: func() any { return &ChainArgs{} },
 		},
+		timeInfo: &sync.Map{},
 	}
 
 	return eng

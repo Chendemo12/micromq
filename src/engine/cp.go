@@ -27,14 +27,17 @@ type Consumer struct {
 }
 
 func (c *Consumer) reset() *Consumer {
-	c.Conn = nil
 	c.Addr = ""
 	c.Conf = nil
+	c.Conn = nil
 
 	return c
 }
 
-func (c *Consumer) setConn(r transfer.Conn) *Consumer {
+func (c *Consumer) IsFree() bool { return c.Addr == "" }
+
+func (c *Consumer) SetConn(r transfer.Conn) *Consumer {
+	c.Addr = r.Addr()
 	c.Conn = r
 
 	return c
@@ -75,8 +78,17 @@ type Producer struct {
 
 func (p *Producer) reset() *Producer {
 	p.Addr = ""
-	p.Conn = nil
 	p.Conf = nil
+	p.Conn = nil
+
+	return p
+}
+
+func (p *Producer) IsFree() bool { return p.Addr == "" }
+
+func (p *Producer) SetConn(r transfer.Conn) *Producer {
+	p.Addr = r.Addr()
+	p.Conn = r
 
 	return p
 }

@@ -160,3 +160,5 @@ func JsonMessageParseFrom(reader io.Reader, m Message) error {
 
 	return helper.JsonUnmarshal(_bytes[:n], m)
 }
+
+// ----------------------------------------------------------------------------

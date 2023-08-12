@@ -14,99 +14,44 @@ type DnsForm struct {
 	IP     string `json:"ip"`
 }
 
-type DnsProducer struct {
-	Host           string `json:"host"`
-	Port           string `json:"port"`
-	Topic          string `json:"topic"`
-	Token          string `json:"token"`
-	ctx            context.Context
-	logger         logger.Iface
-	p              *sdk.Producer
-	reportInterval time.Duration
-	ticker         *time.Ticker
-}
-
-func (p *DnsProducer) Send(fn func(r *sdk.ProducerMessage) error) {
-	err := p.p.Send(fn)
-	if err != nil {
-		p.logger.Warn("message send failed: ", err)
-	} else {
-		p.logger.Info("message sent")
-	}
-}
-
-func (p *DnsProducer) tick() {
-	for {
-		select {
-		case <-p.ctx.Done():
-			return
-		case <-p.ticker.C:
-			p.Send(func(r *sdk.ProducerMessage) error {
-				r.Topic = p.Topic
-				r.Key = time.Now().String()
-				err2 := r.BindFromJSON(&DnsForm{
-					Domain: "pi.ifile.fun",
-					IP:     "10.64.73.28",
-				})
-				p.logger.Info("sending msg ...")
-				return err2
-			})
-		}
-	}
-}
-
-func (p *DnsProducer) Start() error {
-	p.ticker = time.NewTicker(p.reportInterval)
-	pd, err := sdk.NewAsyncProducer(sdk.Config{
-		Host:   p.Host,
-		Port:   p.Port,
-		Ack:    sdk.AllConfirm,
-		Ctx:    p.ctx,
-		Logger: p.logger,
-		Token:  p.Token,
-	})
-	if err != nil {
-		return err
-	}
-
-	p.p = pd
-
-	if err != nil {
-		return err
-	}
-
-	go p.tick()
-
-	p.logger.Info("dns producer started.")
-	return nil
-}
-
-func (p *DnsProducer) Done() <-chan struct{} { return p.ctx.Done() }
-
-func (p *DnsProducer) Stop() { p.p.Stop() }
-
 func TestSdkProducer(t *testing.T) {
+	ticker := time.NewTicker(1000 * time.Millisecond)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 
-	producer := &DnsProducer{
-		Host:           "127.0.0.1",
-		Port:           "7270",
-		Topic:          "DNS_REPORT",
-		Token:          "12345678",
-		ctx:            ctx,
-		logger:         logger.NewDefaultLogger(),
-		reportInterval: 1000 * time.Millisecond,
-	}
-	err := producer.Start()
+	producer, err := sdk.NewAsyncProducer(sdk.Config{
+		Host:   "127.0.0.1",
+		Port:   "7270",
+		Token:  "123456788",
+		Ack:    sdk.AllConfirm,
+		Ctx:    ctx,
+		Logger: logger.NewDefaultLogger(),
+	})
 
 	if err != nil {
 		cancel()
 		t.Errorf("producer connect failed: %s", err)
-	} else {
-		t.Logf("producer started.")
-
-		<-producer.Done()
-		cancel()
-		t.Logf("producer finished.")
+		return
 	}
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				_ = producer.Send(func(r *sdk.ProducerMessage) error {
+					r.Topic = "DNS_REPORT"
+					r.Key = time.Now().String()
+					err2 := r.BindFromJSON(&DnsForm{
+						Domain: "test.test.com",
+						IP:     "10.64.73.28",
+					})
+					producer.Logger().Info("sending msg ...")
+					return err2
+				})
+			}
+		}
+	}()
+
+	<-ctx.Done()
+	cancel()
 }
