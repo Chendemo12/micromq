@@ -9,7 +9,9 @@ import (
 	"github.com/Chendemo12/functools/python"
 	"github.com/Chendemo12/functools/tcp"
 	"github.com/Chendemo12/micromq/src/proto"
+	"github.com/Chendemo12/micromq/src/transfer"
 	"io"
+	"strings"
 	"sync"
 	"sync/atomic"
 )
@@ -21,7 +23,7 @@ type ConsumerHandler interface {
 	OnClosed()         // （同步执行）当连接中断时,发出的信号, 此事件必须在执行完成之后才会进行重连操作（若有）
 	OnRegisterFailed() // （同步执行）当注册失败触发的事件
 	// OnNotImplementMessageType 当收到一个未实现的消息帧时触发的事件
-	OnNotImplementMessageType(frame *proto.TransferFrame, r *tcp.Remote)
+	OnNotImplementMessageType(frame *proto.TransferFrame, c transfer.Conn)
 }
 
 type CHandler struct{}
@@ -30,14 +32,14 @@ func (c *CHandler) OnConnected()      {}
 func (c *CHandler) OnClosed()         {}
 func (c *CHandler) OnRegisterFailed() {}
 
-func (c *CHandler) OnNotImplementMessageType(frame *proto.TransferFrame, r *tcp.Remote) {}
+func (c *CHandler) OnNotImplementMessageType(frame *proto.TransferFrame, con transfer.Conn) {}
 
 // ----------------------------------------------------------------------------
 
 // Consumer 消费者
 type Consumer struct {
 	conf        *Config         //
-	link        *Link           // 底层数据连接
+	link        Link            // 底层数据连接
 	handler     ConsumerHandler // 消息处理方法
 	isConnected *atomic.Bool    // tcp是否连接成功
 	isRegister  *atomic.Bool    // 是否注册成功
@@ -92,12 +94,12 @@ func (c *Consumer) handleMessage(frame *proto.TransferFrame) {
 	}
 }
 
-func (c *Consumer) handleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remote) {
+func (c *Consumer) handleRegisterMessage(frame *proto.TransferFrame, con transfer.Conn) {
 	form := &proto.MessageResponse{}
 	err := frame.Unmarshal(form)
 	if err != nil {
 		c.Logger().Warn("register message response unmarshal failed: ", err.Error())
-		_ = c.ReRegister(r) // retry
+		_ = c.ReRegister(con) // retry
 		return
 	}
 
@@ -113,22 +115,22 @@ func (c *Consumer) handleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remo
 	}
 }
 
-func (c *Consumer) distribute(frame *proto.TransferFrame, r *tcp.Remote) {
+func (c *Consumer) distribute(frame *proto.TransferFrame, con transfer.Conn) {
 	switch frame.Type {
 
 	case proto.RegisterMessageRespType:
-		c.handleRegisterMessage(frame, r)
+		c.handleRegisterMessage(frame, con)
 
 	case proto.ReRegisterMessageType:
 		c.isRegister.Store(false)
 		c.Logger().Debug("sever let re-register")
-		_ = c.ReRegister(r)
+		_ = c.ReRegister(con)
 
 	case proto.CMessageType:
 		c.handleMessage(frame)
 
 	default: // 未识别的帧类型
-		c.handler.OnNotImplementMessageType(frame, r)
+		c.handler.OnNotImplementMessageType(frame, con)
 	}
 }
 
@@ -137,13 +139,15 @@ func (c *Consumer) Logger() logger.Iface { return c.conf.Logger }
 // HandlerFunc 获取注册的消息处理方法
 func (c *Consumer) HandlerFunc() ConsumerHandler { return c.handler }
 
-func (c *Consumer) ReRegister(r *tcp.Remote) error {
+func (c *Consumer) ReRegister(r transfer.Conn) error {
 	c.isRegister.Store(false)
 	_, err := r.Write(c.frameBytes)
 	err = r.Drain()
 
 	return err
 }
+
+// ================================ TCP handler ===============================
 
 // OnAccepted 当TCP连接成功时会自行发送注册消息
 func (c *Consumer) OnAccepted(r *tcp.Remote) error {
@@ -173,7 +177,7 @@ func (c *Consumer) Handler(r *tcp.Remote) error {
 	err := frame.ParseFrom(r) // 此操作不应并发读取，避免消息2覆盖消息1的缓冲区
 
 	// 异步执行，立刻读取下一条消息
-	go func(f *proto.TransferFrame, client *tcp.Remote, err error) { // 处理消息帧
+	go func(f *proto.TransferFrame, con transfer.Conn, err error) { // 处理消息帧
 		defer framePool.Put(f)
 
 		if err != nil {
@@ -181,12 +185,15 @@ func (c *Consumer) Handler(r *tcp.Remote) error {
 				c.Logger().Warn(fmt.Errorf("consumer parse frame failed: %v", err))
 			}
 		} else {
-			c.distribute(f, client)
+			c.distribute(f, con)
 		}
 	}(frame, r, err)
 
 	return nil
 }
+
+// ================================ UDP handler ===============================
+//
 
 // IsConnected 与服务器是否连接成功
 func (c *Consumer) IsConnected() bool { return c.isConnected.Load() }
@@ -241,6 +248,28 @@ func NewConsumer(conf Config, handler ConsumerHandler) (*Consumer, error) {
 	}
 	c.Clean()
 
+	con := &Consumer{
+		conf:        c,
+		handler:     handler,
+		isConnected: &atomic.Bool{},
+		isRegister:  &atomic.Bool{},
+		mu:          &sync.Mutex{},
+	}
+
+	switch strings.ToUpper(c.Link) {
+	case "TCP", "UDP": // TODO: 目前仅支持TCP
+		con.link = &TCPLink{
+			Host:    c.Host,
+			Port:    c.Port,
+			Kind:    proto.ConsumerLinkType,
+			handler: nil,
+			logger:  c.Logger,
+		}
+		con.link.SetTCPHandler(con) // TCP 消息处理接口
+	default:
+		return nil, errors.New("unsupported link: " + c.Link)
+	}
+
 	frame := framePool.Get()
 	reporter := &proto.RegisterMessage{
 		Topics: handler.Topics(),
@@ -256,24 +285,7 @@ func NewConsumer(conf Config, handler ConsumerHandler) (*Consumer, error) {
 		return nil, err
 	}
 
-	con := &Consumer{
-		conf: c,
-		link: &Link{
-			Host:    c.Host,
-			Port:    c.Port,
-			Kind:    proto.ConsumerLinkType,
-			handler: nil,
-			logger:  c.Logger,
-		},
-		handler:     handler,
-		isConnected: &atomic.Bool{},
-		isRegister:  &atomic.Bool{},
-		mu:          &sync.Mutex{},
-	}
-
 	con.frameBytes = _bytes
-	con.link.handler = con // TCP 消息处理接口
-
 	return con, nil
 }
 

@@ -8,7 +8,9 @@ import (
 	"github.com/Chendemo12/fastapi-tool/logger"
 	"github.com/Chendemo12/functools/tcp"
 	"github.com/Chendemo12/micromq/src/proto"
+	"github.com/Chendemo12/micromq/src/transfer"
 	"io"
+	"strings"
 	"sync/atomic"
 	"time"
 )
@@ -19,7 +21,7 @@ type ProducerHandler interface {
 	OnRegisterFailed(status proto.MessageResponseStatus) // 阻塞调用, 当注册失败触发的事件
 	OnRegisterExpire()                                   // 阻塞调用
 	// OnNotImplementMessageType 当收到一个未实现的消息帧时触发的事件
-	OnNotImplementMessageType(frame *proto.TransferFrame, r *tcp.Remote)
+	OnNotImplementMessageType(frame *proto.TransferFrame, r transfer.Conn)
 }
 
 // PHandler 默认实现
@@ -41,13 +43,13 @@ func (h PHandler) OnRegisterFailed(status proto.MessageResponseStatus) {
 	h.logger.Warn("producer register failed: ", proto.GetMessageResponseStatusText(status))
 }
 
-func (h PHandler) OnNotImplementMessageType(frame *proto.TransferFrame, r *tcp.Remote) {}
+func (h PHandler) OnNotImplementMessageType(frame *proto.TransferFrame, r transfer.Conn) {}
 
 // Producer 生产者, 通过 Send 发送的消息并非会立即投递给服务端
 // 而是会按照服务器下发的配置定时批量发送消息,通常为500ms
 type Producer struct {
 	conf          *Config      //
-	link          *Link        // 底层数据连接
+	link          Link         // 底层数据连接
 	isConnected   *atomic.Bool // tcp是否连接成功
 	isRegister    *atomic.Bool // 是否注册成功
 	regFrameBytes []byte       // 注册消息帧字节流
@@ -122,8 +124,8 @@ func (p *Producer) sendToServer() {
 			}
 
 			go func() { // 异步发送消息
-				_, err2 := p.link.client.Write(_bytes)
-				err2 = p.link.client.Drain()
+				_, err2 := p.link.Write(_bytes)
+				err2 = p.link.Drain()
 				if err2 != nil {
 					p.Logger().Warn("send message to server failed: ", err2)
 				}
@@ -139,7 +141,7 @@ func (p *Producer) modifyTick(interval time.Duration) {
 	}
 }
 
-func (p *Producer) handleRegisterMessage(frame *proto.TransferFrame, r *tcp.Remote) {
+func (p *Producer) handleRegisterMessage(frame *proto.TransferFrame, r transfer.Conn) {
 	form := &proto.MessageResponse{}
 	err := frame.Unmarshal(form)
 	if err != nil {
@@ -177,31 +179,14 @@ func (p *Producer) Done() <-chan struct{} { return p.ctx.Done() }
 
 func (p *Producer) Logger() logger.Iface { return p.conf.Logger }
 
-func (p *Producer) OnAccepted(r *tcp.Remote) error {
-	p.Logger().Info("producer connected, send register message...")
-
-	p.isConnected.Store(true)
-	return p.ReRegister(r)
-}
-
 // ReRegister 服务器令客户端重新发起注册流程
-func (p *Producer) ReRegister(r *tcp.Remote) error {
+func (p *Producer) ReRegister(r transfer.Conn) error {
 	p.isRegister.Store(false)
 	_, _ = r.Write(p.regFrameBytes)
 	return r.Drain()
 }
 
-func (p *Producer) OnClosed(_ *tcp.Remote) error {
-	p.Logger().Info("producer connection lost, reconnect...")
-
-	p.isConnected.Store(false)
-	p.isRegister.Store(false)
-	p.handler.OnClose()
-
-	return nil
-}
-
-func (p *Producer) distribute(frame *proto.TransferFrame, r *tcp.Remote) {
+func (p *Producer) distribute(frame *proto.TransferFrame, r transfer.Conn) {
 	switch frame.Type {
 	case proto.RegisterMessageRespType:
 		p.handleRegisterMessage(frame, r)
@@ -218,30 +203,6 @@ func (p *Producer) distribute(frame *proto.TransferFrame, r *tcp.Remote) {
 	default: // 未识别的帧类型
 		p.handler.OnNotImplementMessageType(frame, r)
 	}
-}
-
-func (p *Producer) Handler(r *tcp.Remote) error {
-	if r.Len() < proto.FrameMinLength {
-		return proto.ErrMessageNotFull
-	}
-
-	frame := framePool.Get()
-	err := frame.ParseFrom(r) // 此操作不应并发读取，避免消息2覆盖消息1的缓冲区
-
-	// 异步执行，立刻读取下一条消息
-	go func(f *proto.TransferFrame, client *tcp.Remote, err error) { // 处理消息帧
-		defer framePool.Put(f)
-
-		if err != nil {
-			if !errors.Is(err, io.EOF) {
-				p.Logger().Warn(fmt.Errorf("producer parse frame failed: %v", err))
-			}
-		} else {
-			p.distribute(f, client)
-		}
-	}(frame, r, err)
-
-	return nil
 }
 
 // NewRecord 从池中初始化一个新的消息记录
@@ -285,6 +246,52 @@ func (p *Producer) Send(fn func(record *proto.ProducerMessage) error) error {
 	}
 	return p.Publisher(msg)
 }
+
+// ================================ TCP handler ===============================
+
+func (p *Producer) OnAccepted(r *tcp.Remote) error {
+	p.Logger().Info("producer connected, send register message...")
+
+	p.isConnected.Store(true)
+	return p.ReRegister(r)
+}
+
+func (p *Producer) OnClosed(_ *tcp.Remote) error {
+	p.Logger().Info("producer connection lost, reconnect...")
+
+	p.isConnected.Store(false)
+	p.isRegister.Store(false)
+	p.handler.OnClose()
+
+	return nil
+}
+
+func (p *Producer) Handler(r *tcp.Remote) error {
+	if r.Len() < proto.FrameMinLength {
+		return proto.ErrMessageNotFull
+	}
+
+	frame := framePool.Get()
+	err := frame.ParseFrom(r) // 此操作不应并发读取，避免消息2覆盖消息1的缓冲区
+
+	// 异步执行，立刻读取下一条消息
+	go func(f *proto.TransferFrame, client transfer.Conn, err error) { // 处理消息帧
+		defer framePool.Put(f)
+
+		if err != nil {
+			if !errors.Is(err, io.EOF) {
+				p.Logger().Warn(fmt.Errorf("producer parse frame failed: %v", err))
+			}
+		} else {
+			p.distribute(f, client)
+		}
+	}(frame, r, err)
+
+	return nil
+}
+
+// ================================ UDP handler ===============================
+//
 
 func (p *Producer) Start() error {
 	err := p.link.Connect()
@@ -342,12 +349,17 @@ func NewProducer(conf Config, handlers ...ProducerHandler) *Producer {
 	p.ctx, p.cancel = context.WithCancel(p.conf.Ctx)
 	p.dingDong = make(chan struct{}, 1)
 
-	p.link = &Link{
-		Host:    c.Host,
-		Port:    c.Port,
-		Kind:    proto.ProducerLinkType,
-		logger:  c.Logger,
-		handler: p,
+	switch strings.ToUpper(c.Link) {
+	case "UDP": // TODO: 目前仅支持TCP
+
+	default:
+		p.link = &TCPLink{
+			Host:   c.Host,
+			Port:   c.Port,
+			Kind:   proto.ProducerLinkType,
+			logger: c.Logger,
+		}
+		p.link.SetTCPHandler(p)
 	}
 
 	if len(handlers) > 0 && handlers[0] != nil {

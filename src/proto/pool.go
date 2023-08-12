@@ -59,8 +59,6 @@ func NewHCPMPool() *HCPMessagePool {
 	return p
 }
 
-// TODO：Put时检验counter是否正确
-
 type FramePool struct {
 	pool    *sync.Pool
 	counter *Counter
@@ -74,9 +72,15 @@ func (p *FramePool) Get() *TransferFrame {
 }
 
 func (p *FramePool) Put(v *TransferFrame) {
-	v.Reset() // 此处在于释放内存
-	p.pool.Put(v)
+	cv := p.counter.Value()
+	if cv == 0 || v.counter <= cv {
+		v.Reset() // 此处在于释放内存
+		p.pool.Put(v)
+	}
 }
+
+// HistoryNum 历史数量
+func (p *FramePool) HistoryNum() uint64 { return p.counter.Value() }
 
 type CPMPool struct {
 	cpool *sync.Pool
@@ -120,6 +124,12 @@ type HCPMessagePool struct {
 	pCounter *Counter
 }
 
+// CMHistoryNum ConsumerMessage 历史数量
+func (m *HCPMessagePool) CMHistoryNum() uint64 { return m.cCounter.Value() }
+
+// PMHistoryNum ProducerMessage 历史数量
+func (m *HCPMessagePool) PMHistoryNum() uint64 { return m.pCounter.Value() }
+
 func (m *HCPMessagePool) GetCM() *ConsumerMessage {
 	v := m.cpool.Get().(*ConsumerMessage)
 	v.Reset()
@@ -129,8 +139,11 @@ func (m *HCPMessagePool) GetCM() *ConsumerMessage {
 }
 
 func (m *HCPMessagePool) PutCM(v *ConsumerMessage) {
-	v.Reset()
-	m.cpool.Put(v)
+	cv := m.cCounter.Value()
+	if cv == 0 || v.counter <= cv {
+		v.Reset()
+		m.cpool.Put(v)
+	}
 }
 
 func (m *HCPMessagePool) GetPM() *ProducerMessage {
@@ -142,8 +155,11 @@ func (m *HCPMessagePool) GetPM() *ProducerMessage {
 }
 
 func (m *HCPMessagePool) PutPM(v *ProducerMessage) {
-	v.Reset()
-	m.ppool.Put(v)
+	cv := m.pCounter.Value()
+	if cv == 0 || v.counter <= cv {
+		v.Reset()
+		m.ppool.Put(v)
+	}
 }
 
 // -------------------------------------------------------------------

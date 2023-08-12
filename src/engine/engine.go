@@ -6,8 +6,8 @@ import (
 	"fmt"
 	"github.com/Chendemo12/fastapi-tool/cronjob"
 	"github.com/Chendemo12/fastapi-tool/logger"
-	"github.com/Chendemo12/functools/tcp"
 	"github.com/Chendemo12/micromq/src/proto"
+	"github.com/Chendemo12/micromq/src/transfer"
 	"sync"
 	"time"
 )
@@ -56,7 +56,7 @@ type Engine struct {
 	producers            []*Producer // 生产者
 	consumers            []*Consumer // 消费者
 	topics               *sync.Map
-	transfer             Transfer
+	transfer             transfer.Transfer
 	producerSendInterval time.Duration                      // 生产者发送消息的时间间隔 = 500ms
 	cpLock               *sync.RWMutex                      // consumer producer add/remove lock
 	hooks                [proto.TotalNumberOfMessages]*Hook // 各种协议的处理者
@@ -115,7 +115,7 @@ func (e *Engine) beforeServe() *Engine {
 func (e *Engine) bindTransfer() *Engine {
 	// 设置默认实现
 	if e.transfer == nil {
-		e.transfer = &TCPTransfer{}
+		e.transfer = &transfer.TCPTransfer{}
 	}
 
 	e.transfer.SetHost(e.conf.Host)
@@ -159,7 +159,7 @@ func (e *Engine) bindProtoHandler() *Engine {
 }
 
 // 连接成功时不关联数据, 仅在注册成功时,关联到 Engine 中
-func (e *Engine) whenClientAccept(r *tcp.Remote) {}
+func (e *Engine) whenClientAccept(con transfer.Conn) {}
 
 // 连接关闭，删除记录
 func (e *Engine) whenClientClose(addr string) {
@@ -188,17 +188,17 @@ func (e *Engine) findConsumerSlot() int {
 	return -1
 }
 
-func (e *Engine) getArgs(frame *proto.TransferFrame, r *tcp.Remote) *ChainArgs {
+func (e *Engine) getArgs(frame *proto.TransferFrame, con transfer.Conn) *ChainArgs {
 	args := e.argsPool.Get().(*ChainArgs)
 	args.frame = frame
-	args.r = r
+	args.con = con
 
 	return args
 }
 
 func (e *Engine) putArgs(args *ChainArgs) {
 	args.frame = nil
-	args.r = nil
+	args.con = nil
 	args.producer = nil
 	args.rm = nil
 	args.pms = nil
@@ -234,16 +234,16 @@ func (e *Engine) handlerFlow(args *ChainArgs, links []FlowHandler) (bool, error)
 }
 
 // 分发消息
-func (e *Engine) distribute(frame *proto.TransferFrame, r *tcp.Remote) {
+func (e *Engine) distribute(frame *proto.TransferFrame, con transfer.Conn) {
 	var err error
 	var needResp bool
 
 	if proto.GetDescriptor(frame.Type).MessageType() != proto.NotImplementMessageType {
 		// 协议已实现
-		needResp, err = e.hooks[frame.Type].Handler(frame, r)
+		needResp, err = e.hooks[frame.Type].Handler(frame, con)
 	} else {
 		// 此协议未注册, 通过事件回调处理
-		needResp, err = e.EventHandler().OnNotImplementMessageType(frame, r)
+		needResp, err = e.EventHandler().OnNotImplementMessageType(frame, con)
 	}
 
 	// 错误，或不需要回写返回值
@@ -258,29 +258,29 @@ func (e *Engine) distribute(frame *proto.TransferFrame, r *tcp.Remote) {
 		return
 	}
 
-	_, err = r.Write(_bytes)
-	err = r.Drain()
+	_, err = con.Write(_bytes)
+	err = con.Drain()
 	if err != nil {
 		e.Logger().Warn(fmt.Sprintf(
-			"send <message:%d> to '%s' failed: %s", frame.Type, r.Addr(), err,
+			"send <message:%d> to '%s' failed: %s", frame.Type, con.Addr(), err,
 		))
 	}
 }
 
 // 处理注册消息, 内部无需返回消息,通过修改frame实现返回消息
-func (e *Engine) registerHandler(frame *proto.TransferFrame, r *tcp.Remote) (bool, error) {
-	args := e.getArgs(frame, r)
+func (e *Engine) registerHandler(frame *proto.TransferFrame, con transfer.Conn) (bool, error) {
+	args := e.getArgs(frame, con)
 	args.rm = &proto.RegisterMessage{}
 
 	return e.handlerFlow(args, e.registerFlow)
 }
 
 // Deprecated:
-func (e *Engine) handlePMessage(frame *proto.TransferFrame, r *tcp.Remote) (bool, error) {
-	producer, exist := e.QueryProducer(r.Addr())
+func (e *Engine) handlePMessage(frame *proto.TransferFrame, con transfer.Conn) (bool, error) {
+	producer, exist := e.QueryProducer(con.Addr())
 
 	if !exist {
-		e.Logger().Debug("found unregister producer, let re-register: ", r.Addr())
+		e.Logger().Debug("found unregister producer, let re-register: ", con.Addr())
 
 		// 重新发起注册暂无消息体
 		frame.Type = proto.ReRegisterMessageType
@@ -337,8 +337,8 @@ func (e *Engine) handlePMessage(frame *proto.TransferFrame, r *tcp.Remote) (bool
 
 // 处理生产者消息帧，此处需要判断生产者是否已注册
 // 内部无需返回消息,通过修改frame实现返回消息
-func (e *Engine) pmHandler(frame *proto.TransferFrame, r *tcp.Remote) (bool, error) {
-	args := e.getArgs(frame, r)
+func (e *Engine) pmHandler(frame *proto.TransferFrame, con transfer.Conn) (bool, error) {
+	args := e.getArgs(frame, con)
 
 	return e.handlerFlow(args, e.pmFlow)
 }

@@ -307,7 +307,8 @@ func (h *HeartBeatMessage) String() string {
 }
 
 func (h *HeartBeatMessage) Length() int { return 0 }
-func (h *HeartBeatMessage) Reset()      {}
+
+func (h *HeartBeatMessage) Reset() {}
 
 func (h *HeartBeatMessage) Parse(stream []byte) error {
 	return JsonMessageParse(stream, h)

@@ -1,8 +1,8 @@
 package engine
 
 import (
-	"github.com/Chendemo12/functools/tcp"
 	"github.com/Chendemo12/micromq/src/proto"
+	"github.com/Chendemo12/micromq/src/transfer"
 	"sync"
 	"time"
 )
@@ -23,7 +23,7 @@ type Consumer struct {
 	mu    *sync.Mutex
 	Addr  string          `json:"addr"`
 	Conf  *ConsumerConfig `json:"conf"`
-	Conn  *tcp.Remote     `json:"-"`
+	Conn  transfer.Conn   `json:"-"`
 }
 
 func (c *Consumer) reset() *Consumer {
@@ -34,11 +34,13 @@ func (c *Consumer) reset() *Consumer {
 	return c
 }
 
-func (c *Consumer) setConn(r *tcp.Remote) *Consumer {
+func (c *Consumer) setConn(r transfer.Conn) *Consumer {
 	c.Conn = r
 
 	return c
 }
+
+func (c *Consumer) Index() int { return c.index }
 
 // NeedConfirm 是否需要返回确认消息给客户端
 func (c *Consumer) NeedConfirm() bool { return c.Conf.Ack != proto.NoConfirm }
@@ -68,7 +70,7 @@ type Producer struct {
 	mu    *sync.Mutex
 	Addr  string          `json:"addr"`
 	Conf  *ProducerConfig `json:"conf"`
-	Conn  *tcp.Remote     `json:"-"`
+	Conn  transfer.Conn   `json:"-"`
 }
 
 func (p *Producer) reset() *Producer {
@@ -78,5 +80,7 @@ func (p *Producer) reset() *Producer {
 
 	return p
 }
+
+func (p *Producer) Index() int { return p.index }
 
 func (p *Producer) NeedConfirm() bool { return p.Conf.Ack != proto.NoConfirm }

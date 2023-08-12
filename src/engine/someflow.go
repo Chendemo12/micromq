@@ -18,7 +18,7 @@ func (e *Engine) registerParser(args *ChainArgs) (stop bool) {
 		// 注册消息帧解析失败，令重新发起注册
 		args.frame.Type = proto.ReRegisterMessageType
 		args.frame.Data = []byte{} // 重新发起注册暂无消息体
-		args.err = fmt.Errorf("register message parse failed, %v, let re-register: %s", err, args.r.Addr())
+		args.err = fmt.Errorf("register message parse failed, %v, let re-register: %s", err, args.con.Addr())
 	}
 
 	return err != nil
@@ -34,12 +34,12 @@ func (e *Engine) registerAuth(args *ChainArgs) (stop bool) {
 		Keepalive:      e.HeartbeatInterval(),
 	}
 
-	e.Logger().Debug(fmt.Sprintf("receive '%s' from  %s", args.rm, args.r.Addr()))
+	e.Logger().Debug(fmt.Sprintf("receive '%s' from  %s", args.rm, args.con.Addr()))
 
 	if !e.IsTokenCorrect(args.rm.Token) {
 		// 需要认证，但是密钥不正确
 		args.resp.Status = proto.TokenIncorrectStatus
-		e.Logger().Info(args.r.Addr(), " has wrong token, refused.")
+		e.Logger().Info(args.con.Addr(), " has wrong token, refused.")
 
 		stop = true
 	}
@@ -56,12 +56,12 @@ func (e *Engine) registerAllow(args *ChainArgs) (stop bool) {
 		if i := e.findProducerSlot(); i != -1 {
 			// 记录生产者, 用于判断其后是否要返回消息投递后的确认消息
 			producer := e.producers[i]
-			producer.Addr = args.r.Addr()
+			producer.Addr = args.con.Addr()
 			producer.Conf = &ProducerConfig{
 				Ack:            args.rm.Ack,
 				TickerInterval: e.ProducerSendInterval(),
 			}
-			producer.Conn = args.r
+			producer.Conn = args.con
 
 			args.resp.Status = proto.AcceptedStatus
 			args.producer = producer
@@ -73,9 +73,9 @@ func (e *Engine) registerAllow(args *ChainArgs) (stop bool) {
 		e.cpLock.Lock()
 		if i := e.findConsumerSlot(); i != -1 {
 			c := e.consumers[i]
-			c.Addr = args.r.Addr()
+			c.Addr = args.con.Addr()
 			c.Conf = &ConsumerConfig{Topics: args.rm.Topics, Ack: args.rm.Ack}
-			c.setConn(args.r)
+			c.setConn(args.con)
 			args.resp.Status = proto.AcceptedStatus
 
 			for _, name := range args.rm.Topics {
@@ -94,9 +94,9 @@ func (e *Engine) registerCallback(args *ChainArgs) (stop bool) {
 	if args.resp.Accepted() {
 		switch args.rm.Type {
 		case proto.ProducerLinkType:
-			go e.EventHandler().OnProducerRegister(args.r.Addr())
+			go e.EventHandler().OnProducerRegister(args.con.Addr())
 		case proto.ConsumerLinkType:
-			go e.EventHandler().OnConsumerRegister(args.r.Addr())
+			go e.EventHandler().OnConsumerRegister(args.con.Addr())
 		}
 	}
 
@@ -108,15 +108,15 @@ func (e *Engine) registerCallback(args *ChainArgs) (stop bool) {
 //
 
 func (e *Engine) producerNotFound(args *ChainArgs) (stop bool) {
-	producer, exist := e.QueryProducer(args.r.Addr())
+	producer, exist := e.QueryProducer(args.con.Addr())
 
 	if !exist {
-		e.Logger().Debug("found unregister producer, let re-register: ", args.r.Addr())
+		e.Logger().Debug("found unregister producer, let re-register: ", args.con.Addr())
 
 		// 重新发起注册暂无消息体
 		args.frame.Type = proto.ReRegisterMessageType
 		args.frame.Data = []byte{}
-		//args.err = fmt.Errorf("found unregister producer, let re-register: %s", args.r.Addr())
+		//args.err = fmt.Errorf("found unregister producer, let re-register: %s", args.con.Addr())
 
 		// 返回令客户端重新注册命令
 		return true

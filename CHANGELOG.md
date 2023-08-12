@@ -1,5 +1,11 @@
 # MICRO-MQ
 
+## v0.3.1-pre5 - 20230812
+
+### Feat
+
+- 新增接口`transfer.Conn`以分离`engine`与`transfer`;
+
 ## v0.3.1-pre4 - 20230809
 
 ### Refactor

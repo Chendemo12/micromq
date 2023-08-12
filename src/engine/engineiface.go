@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"github.com/Chendemo12/fastapi-tool/logger"
 	"github.com/Chendemo12/micromq/src/proto"
+	"github.com/Chendemo12/micromq/src/transfer"
 	"reflect"
 	"sync"
 	"time"
@@ -19,7 +20,7 @@ func (e *Engine) Logger() logger.Iface { return e.conf.Logger }
 func (e *Engine) EventHandler() EventHandler { return e.conf.EventHandler }
 
 // ReplaceTransfer 替换传输层实现
-func (e *Engine) ReplaceTransfer(transfer Transfer) *Engine {
+func (e *Engine) ReplaceTransfer(transfer transfer.Transfer) *Engine {
 	if transfer != nil {
 		e.transfer = transfer
 	}

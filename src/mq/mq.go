@@ -5,6 +5,7 @@ import (
 	"github.com/Chendemo12/fastapi"
 	"github.com/Chendemo12/fastapi-tool/logger"
 	"github.com/Chendemo12/micromq/src/engine"
+	"github.com/Chendemo12/micromq/src/transfer"
 	"os"
 )
 
@@ -13,7 +14,7 @@ type MQ struct {
 	ctx           context.Context
 	cancel        context.CancelFunc
 	broker        *engine.Engine
-	transfer      engine.Transfer
+	transfer      transfer.Transfer
 	faster        *fastapi.FastApi
 	logger        logger.Iface
 	brokerHandler engine.EventHandler // broker 各种事件触发器
@@ -36,7 +37,7 @@ func (m *MQ) initBroker() *MQ {
 		Crypto:      m.conf.Crypto,
 		Token:       m.conf.BrokerToken,
 	})
-	m.transfer = &engine.TCPTransfer{}
+	m.transfer = &transfer.TCPTransfer{}
 	m.broker.ReplaceTransfer(m.transfer)
 	m.broker.SetEventHandler(m.brokerHandler)
 	return m

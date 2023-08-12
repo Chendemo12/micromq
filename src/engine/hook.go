@@ -1,12 +1,12 @@
 package engine
 
 import (
-	"github.com/Chendemo12/functools/tcp"
 	"github.com/Chendemo12/micromq/src/proto"
+	"github.com/Chendemo12/micromq/src/transfer"
 )
 
 // HookHandler 消息处理方法
-type HookHandler func(frame *proto.TransferFrame, r *tcp.Remote) (goon bool, err error)
+type HookHandler func(frame *proto.TransferFrame, con transfer.Conn) (goon bool, err error)
 
 type Hook struct {
 	Type    proto.MessageType
@@ -14,15 +14,11 @@ type Hook struct {
 	IsAsync bool
 }
 
-func emptyHookHandler(_ *proto.TransferFrame, _ *tcp.Remote) (goon bool, err error) {
-	return false, nil
-}
-
 // ================================== 链式处理请求 ==================================
 
 type ChainArgs struct {
 	frame    *proto.TransferFrame
-	r        *tcp.Remote
+	con      transfer.Conn
 	producer *Producer
 	rm       *proto.RegisterMessage
 	resp     *proto.MessageResponse
@@ -31,3 +27,7 @@ type ChainArgs struct {
 }
 
 type FlowHandler func(args *ChainArgs) (stop bool)
+
+func emptyHookHandler(_ *proto.TransferFrame, con transfer.Conn) (goon bool, err error) {
+	return false, nil
+}
