@@ -48,12 +48,12 @@ type Link interface {
 }
 
 type TCPLink struct {
-	Host    string          `json:"host"`
-	Port    string          `json:"port"`
-	Kind    proto.LinkType  `json:"kind"`
-	client  *tcp.Client     // 对端连接
-	handler tcp.HandlerFunc // 消息处理程序
-	logger  logger.Iface
+	Host     string          `json:"host"`
+	Port     string          `json:"port"`
+	LinkType proto.LinkType  `json:"link_type"`
+	client   *tcp.Client     // 对端连接
+	handler  tcp.HandlerFunc // 消息处理程序
+	logger   logger.Iface
 }
 
 func (l *TCPLink) Write(p []byte) (int, error) { return l.client.Write(p) }

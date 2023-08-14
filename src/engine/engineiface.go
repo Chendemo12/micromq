@@ -157,7 +157,7 @@ func (e *Engine) RemoveConsumer(addr string) {
 	}
 
 	c.reset()
-	e.Logger().Info(fmt.Sprintf("<%s:%s> removed.", proto.ConsumerLinkType, addr))
+	e.Logger().Info(fmt.Sprintf("connection <%s:%s> removed.", proto.ConsumerLinkType, addr))
 	go e.EventHandler().OnConsumerClosed(addr)
 }
 
@@ -169,7 +169,7 @@ func (e *Engine) RemoveProducer(addr string) {
 	p, exist := e.QueryProducer(addr)
 	if exist {
 		p.reset()
-		e.Logger().Debug(fmt.Sprintf("<%s:%s> removed.", proto.ProducerLinkType, addr))
+		e.Logger().Debug(fmt.Sprintf("connection <%s:%s> removed.", proto.ProducerLinkType, addr))
 		go e.EventHandler().OnProducerClosed(addr)
 	}
 }
@@ -240,12 +240,16 @@ func (e *Engine) IsTokenCorrect(token string) bool {
 
 // Serve 阻塞运行
 func (e *Engine) Serve() error {
-	e.Logger().Info("engine starting...")
+	if e.transfer == nil {
+		return errors.New("transfer instance is not implemented")
+	}
+
+	e.Logger().Debug("broker starting...")
 	e.beforeServe()
 	e.scheduler.Run()
 
 	if e.NeedToken() {
-		e.Logger().Info("token authentication is enabled.")
+		e.Logger().Debug("broker token authentication is enabled.")
 	}
 	return e.transfer.Serve()
 }
@@ -288,7 +292,6 @@ func New(cs ...Config) *Engine {
 		argsPool: &sync.Pool{
 			New: func() any { return &ChainArgs{} },
 		},
-		timeInfo: &sync.Map{},
 	}
 
 	return eng

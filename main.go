@@ -11,15 +11,17 @@ func main() {
 	conf := mq.DefaultConf()
 
 	conf.AppName = environ.GetString("APP_NAME", "micromq")
-	conf.BrokerHost = environ.GetString("BROKER_LISTEN_HOST", "0.0.0.0")
-	conf.BrokerPort = environ.GetString("BROKER_LISTEN_PORT", "7270")
-	conf.MaxOpenConn = environ.GetInt("BROKER_MAX_OPEN_SIZE", 50)
-	conf.BrokerToken = proto.CalcSHA(environ.GetString("BROKER_TOKEN", ""))
-	conf.BrokerHeartbeatTimeout = float64(environ.GetInt("BROKER_HEARTBEAT_TIMEOUT", 60))
+	conf.Version = VERSION
+	conf.Debug = environ.GetBool("DEBUG", false)
+
+	conf.Broker.Host = environ.GetString("BROKER_LISTEN_HOST", "0.0.0.0")
+	conf.Broker.Port = environ.GetString("BROKER_LISTEN_PORT", "7270")
+	conf.Broker.BufferSize = environ.GetInt("BROKER_BUFFER_SIZE", 100)
+	conf.Broker.MaxOpenConn = environ.GetInt("BROKER_MAX_OPEN_SIZE", 50)
+	conf.Broker.HeartbeatTimeout = float64(environ.GetInt("BROKER_HEARTBEAT_TIMEOUT", 60))
+	conf.Broker.Token = proto.CalcSHA(environ.GetString("BROKER_TOKEN", ""))
 
 	conf.HttpPort = environ.GetString("HTTP_LISTEN_PORT", "7280")
-	conf.Debug = environ.GetBool("DEBUG", false)
-	conf.Version = VERSION
 
 	zapConf := &zaplog.Config{
 		Filename:   conf.AppName,

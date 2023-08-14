@@ -50,11 +50,7 @@ func (e *Engine) registerAuth(args *ChainArgs) (stop bool) {
 // 密钥验证通过, 寻找空闲空间
 func (e *Engine) registerAllow(args *ChainArgs) (stop bool) {
 	// 记录注册时间戳
-	v, ok := e.timeInfo.Load(args.con.Addr())
-	if ok {
-		info := v.(*TimeInfo)
-		info.RegisteredAt = time.Now().Unix()
-	}
+	e.monitor.OnClientRegistered(args.con.Addr(), args.rm.Type)
 
 	switch args.rm.Type {
 	case proto.ProducerLinkType:
@@ -89,6 +85,19 @@ func (e *Engine) registerAllow(args *ChainArgs) (stop bool) {
 
 		e.cpLock.Unlock()
 	}
+
+	// 输出日志
+	if args.resp.Status == proto.AcceptedStatus {
+		e.Logger().Info(args.con.Addr() + " register successfully")
+	} else {
+		e.Logger().Warn(fmt.Sprintf(
+			"%s register failed, because of: %s, actively close the connection",
+			args.con.Addr(), proto.GetMessageResponseStatusText(args.resp.Status),
+		))
+		// 注册失败，主动断开连接
+		e.closeConnection(args.con.Addr())
+	}
+
 	return
 }
 

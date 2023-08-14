@@ -12,17 +12,17 @@ import (
 )
 
 type Config struct {
-	Host             string       `json:"host"`
-	Port             string       `json:"port"`
-	MaxOpenConn      int          `json:"max_open_conn"` // 允许的最大连接数, 即 生产者+消费者最多有 MaxOpenConn 个
-	BufferSize       int          `json:"buffer_size"`   // 生产者消息历史记录最大数量
-	HeartbeatTimeout float64      `json:"heartbeat_timeout"`
-	Logger           logger.Iface `json:"-"`
-	Crypto           proto.Crypto `json:"-"` // 加密器
-	Token            string       `json:"-"` // 注册认证密钥
-	EventHandler     EventHandler // 事件触发器
-	Ctx              context.Context
-	topicHistorySize int // topic 历史缓存大小
+	Host             string          `json:"host"`
+	Port             string          `json:"port"`
+	MaxOpenConn      int             `json:"max_open_conn"` // 允许的最大连接数, 即 生产者+消费者最多有 MaxOpenConn 个
+	BufferSize       int             `json:"buffer_size"`   // 生产者消息历史记录最大数量
+	HeartbeatTimeout float64         `json:"heartbeat_timeout"`
+	Logger           logger.Iface    `json:"-"`
+	Crypto           proto.Crypto    `json:"-"` // 加密器
+	Token            string          `json:"-"` // 注册认证密钥
+	EventHandler     EventHandler    `json:"-"` // 事件触发器
+	Ctx              context.Context `json:"-"`
+	topicHistorySize int             // topic 历史缓存大小
 }
 
 func (c *Config) Clean() *Config {
@@ -51,14 +51,8 @@ func (c *Config) Clean() *Config {
 	return c
 }
 
-type TimeInfo struct {
-	ConnectedAt  int64 `json:"connected_at"`
-	RegisteredAt int64 `json:"registered_at"`
-}
-
 type Engine struct {
 	conf                 *Config
-	timeInfo             *sync.Map   // TODO: 优化一下
 	producers            []*Producer // 生产者
 	consumers            []*Consumer // 消费者
 	topics               *sync.Map
@@ -70,6 +64,7 @@ type Engine struct {
 	pmFlow               []FlowHandler
 	argsPool             *sync.Pool
 	scheduler            *cronjob.Scheduler
+	monitor              *Monitor
 }
 
 func (e *Engine) beforeServe() *Engine {
@@ -103,8 +98,9 @@ func (e *Engine) beforeServe() *Engine {
 	}
 
 	// 监视器
+	e.monitor = &Monitor{broker: e}
 	e.scheduler = cronjob.NewScheduler(e.Ctx(), e.Logger())
-	e.scheduler.AddCronjob(&Monitor{e: e})
+	e.scheduler.AddCronjob(e.monitor)
 
 	// 修改全局加解密器
 	proto.SetGlobalCrypto(e.conf.Crypto)
@@ -116,18 +112,13 @@ func (e *Engine) beforeServe() *Engine {
 
 // 注册传输层实现
 func (e *Engine) bindTransfer() *Engine {
-	// 设置默认实现
-	if e.transfer == nil {
-		e.transfer = &transfer.TCPTransfer{}
-	}
-
 	e.transfer.SetHost(e.conf.Host)
 	e.transfer.SetPort(e.conf.Port)
 	e.transfer.SetMaxOpenConn(e.conf.MaxOpenConn)
 	e.transfer.SetLogger(e.Logger())
 
-	e.transfer.SetOnConnectedHandler(e.whenClientAccept)
-	e.transfer.SetOnClosedHandler(e.whenClientClose)
+	e.transfer.SetOnConnectedHandler(e.whenClientConnected)
+	e.transfer.SetOnClosedHandler(e.whenClientClosed)
 	e.transfer.SetOnReceivedHandler(e.distribute)
 	e.transfer.SetOnFrameParseErrorHandler(e.EventHandler().OnFrameParseError)
 
@@ -161,20 +152,17 @@ func (e *Engine) bindProtoHandler() *Engine {
 }
 
 // 连接成功时不关联数据, 仅在注册成功时,关联到 Engine 中
-func (e *Engine) whenClientAccept(con transfer.Conn) {
+func (e *Engine) whenClientConnected(con transfer.Conn) {
 	// 记录连接，用于判断是否连接成功后不注册
-	e.timeInfo.Store(con.Addr(), &TimeInfo{
-		ConnectedAt:  time.Now().Unix(),
-		RegisteredAt: 0,
-	})
+	e.monitor.OnClientConnected(con.Addr())
 }
 
 // 连接关闭，删除记录
-func (e *Engine) whenClientClose(addr string) {
+func (e *Engine) whenClientClosed(addr string) {
 	e.RemoveConsumer(addr)
 	e.RemoveProducer(addr)
 
-	e.timeInfo.Delete(addr)
+	e.monitor.OnClientClosed(addr)
 }
 
 // 查找一个空闲的 生产者槽位，若未找到则返回 -1，应在查找之前主动加锁
@@ -216,15 +204,6 @@ func (e *Engine) putArgs(args *ChainArgs) {
 	args.err = nil
 
 	e.argsPool.Put(args)
-}
-
-func (e *Engine) findTimeInfo(addr string) *TimeInfo {
-	v, ok := e.timeInfo.Load(addr)
-	if ok {
-		return v.(*TimeInfo)
-	}
-
-	return &TimeInfo{}
 }
 
 // 将一系列处理过程组合成一条链
@@ -300,4 +279,12 @@ func (e *Engine) pmHandler(frame *proto.TransferFrame, con transfer.Conn) (bool,
 	args := e.getArgs(frame, con)
 
 	return e.handlerFlow(args, e.pmFlow)
+}
+
+// 断开与客户端的连接
+func (e *Engine) closeConnection(addr string) {
+	err := e.transfer.Close(addr)
+	if err != nil {
+		e.Logger().Warn("failed to disconnect with: ", err.Error())
+	}
 }

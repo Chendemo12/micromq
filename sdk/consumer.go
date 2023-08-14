@@ -264,11 +264,11 @@ func NewConsumer(conf Config, handler ConsumerHandler) (*Consumer, error) {
 	switch strings.ToUpper(c.Link) {
 	case "TCP", "UDP": // TODO: 目前仅支持TCP
 		con.link = &TCPLink{
-			Host:    c.Host,
-			Port:    c.Port,
-			Kind:    proto.ConsumerLinkType,
-			handler: nil,
-			logger:  c.Logger,
+			Host:     c.Host,
+			Port:     c.Port,
+			LinkType: proto.ConsumerLinkType,
+			handler:  nil,
+			logger:   c.Logger,
 		}
 		con.link.SetTCPHandler(con) // TCP 消息处理接口
 	default:

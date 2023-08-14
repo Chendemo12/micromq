@@ -31,9 +31,7 @@ type PHandler struct {
 
 func (h PHandler) OnClose() {}
 
-func (h PHandler) OnRegistered() {
-	h.logger.Info("producer register successfully")
-}
+func (h PHandler) OnRegistered() {}
 
 func (h PHandler) OnRegisterExpire() {}
 
@@ -356,10 +354,10 @@ func NewProducer(conf Config, handlers ...ProducerHandler) *Producer {
 
 	default:
 		p.link = &TCPLink{
-			Host:   c.Host,
-			Port:   c.Port,
-			Kind:   proto.ProducerLinkType,
-			logger: c.Logger,
+			Host:     c.Host,
+			Port:     c.Port,
+			LinkType: proto.ProducerLinkType,
+			logger:   c.Logger,
 		}
 		p.link.SetTCPHandler(p)
 	}
