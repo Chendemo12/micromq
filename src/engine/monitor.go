@@ -2,15 +2,11 @@ package engine
 
 import (
 	"context"
+	"fmt"
 	"github.com/Chendemo12/fastapi-tool/cronjob"
 	"github.com/Chendemo12/micromq/src/proto"
 	"sync"
 	"time"
-)
-
-const (
-	registerTimeoutRate  = 1
-	keepaliveTimeoutRate = 3
 )
 
 type TimeoutEventType string
@@ -18,6 +14,11 @@ type TimeoutEventType string
 const (
 	HeartbeatTimeoutEvent TimeoutEventType = "HEARTBEAT_TIMEOUT"
 	RegisterTimeoutEvent  TimeoutEventType = "REGISTER_TIMEOUT"
+)
+
+const (
+	registerTimeoutRate  = 1
+	keepaliveTimeoutRate = 3
 )
 
 // TimeoutEvent 超时事件
@@ -41,6 +42,8 @@ type TimeInfo struct {
 
 func (t *TimeInfo) IsFree() bool { return t.Addr == "" }
 
+func (t *TimeInfo) IsRegistered() bool { return t.LinkType != "" }
+
 func (t *TimeInfo) Reset() {
 	t.Addr = ""
 	t.LinkType = ""
@@ -60,127 +63,88 @@ type Monitor struct {
 	lock      *sync.RWMutex
 }
 
-func (k *Monitor) findTimeout() ([]TimeoutEvent, []TimeoutEvent, []TimeoutEvent, []TimeoutEvent) {
+func (k *Monitor) findTimeout() ([]TimeoutEvent, []TimeoutEvent) {
 	t := time.Now().Unix()
 	hInterval := k.broker.HeartbeatInterval() * keepaliveTimeoutRate
 	rInterval := k.broker.HeartbeatInterval() * registerTimeoutRate
 
-	rTimeoutConsumers := make([]TimeoutEvent, 0)
-	rTimeoutProducers := make([]TimeoutEvent, 0)
-	hTimeoutConsumers := make([]TimeoutEvent, 0)
-	hTimeoutProducers := make([]TimeoutEvent, 0)
+	rTimeout := make([]TimeoutEvent, 0)
+	hTimeout := make([]TimeoutEvent, 0)
 
 	for _, c := range k.timeInfos {
-		info := k.ReadClientTimeInfo(c.Addr, proto.ConsumerLinkType)
-
-		if c.IsFree() || info.ConnectedAt == 0 {
+		if c.IsFree() {
 			continue
 		}
-
 		// 连接成功 -> 注册成功 -> 心跳超时
-		if info.RegisteredAt == 0 { // 连接成功，但尚未注册，判断是否注册超时
-			if t-info.ConnectedAt > int64(rInterval) {
-				rTimeoutConsumers = append(rTimeoutConsumers, TimeoutEvent{
-					Addr:            c.Addr,
-					EventType:       RegisterTimeoutEvent,
-					LinkType:        proto.ConsumerLinkType,
-					ConnectedAt:     info.ConnectedAt,
-					TimeoutInterval: rInterval,
-					TimeoutAt:       time.Now().Unix(),
-				})
-			}
-		} else { // 注册成功，判断心跳是否超时
-			if t-info.ConnectedAt > int64(hInterval) {
-				hTimeoutConsumers = append(hTimeoutConsumers, TimeoutEvent{
+		if c.IsRegistered() { // 注册成功，判断心跳是否超时
+			if t-c.HeartbeatAt > int64(hInterval) {
+				hTimeout = append(hTimeout, TimeoutEvent{
 					Addr:            c.Addr,
 					EventType:       HeartbeatTimeoutEvent,
-					LinkType:        proto.ConsumerLinkType,
-					ConnectedAt:     info.ConnectedAt,
+					LinkType:        c.LinkType,
+					ConnectedAt:     c.ConnectedAt,
 					TimeoutInterval: hInterval,
 					TimeoutAt:       time.Now().Unix(),
 				})
 			}
-		}
-
-	}
-
-	for _, c := range k.timeInfos {
-		info := k.ReadClientTimeInfo(c.Addr, proto.ConsumerLinkType)
-		if c.IsFree() || info.ConnectedAt == 0 {
-			continue
-		}
-
-		if info.RegisteredAt == 0 { // 连接成功，但尚未注册，判断是否注册超时
-			if t-info.ConnectedAt > int64(rInterval) { // 注册超时
-				rTimeoutProducers = append(rTimeoutProducers, TimeoutEvent{
+		} else { // 连接成功，但尚未注册，判断是否注册超时
+			if t-c.ConnectedAt > int64(rInterval) {
+				rTimeout = append(rTimeout, TimeoutEvent{
 					Addr:            c.Addr,
 					EventType:       RegisterTimeoutEvent,
-					LinkType:        proto.ProducerLinkType,
-					ConnectedAt:     info.ConnectedAt,
+					LinkType:        c.LinkType,
+					ConnectedAt:     c.ConnectedAt,
 					TimeoutInterval: rInterval,
-					TimeoutAt:       time.Now().Unix(),
-				})
-			}
-		} else {
-			if t-info.ConnectedAt > int64(hInterval) {
-				hTimeoutProducers = append(hTimeoutProducers, TimeoutEvent{
-					Addr:            c.Addr,
-					EventType:       HeartbeatTimeoutEvent,
-					LinkType:        proto.ProducerLinkType,
-					ConnectedAt:     info.ConnectedAt,
-					TimeoutInterval: hInterval,
 					TimeoutAt:       time.Now().Unix(),
 				})
 			}
 		}
 	}
 
-	return rTimeoutConsumers, rTimeoutProducers, hTimeoutConsumers, hTimeoutProducers
+	return rTimeout, hTimeout
 }
 
-func (k *Monitor) closeRegisterTimeout(consumers, producers []TimeoutEvent) {
-	for _, c := range consumers {
-		con := c
+func (k *Monitor) closeRegisterTimeout(timeouts []TimeoutEvent) {
+	for _, c := range timeouts {
+		event := c
 		go func() {
-			k.broker.Logger().Info("consumer register timeout, actively close the connection with: " + con.Addr)
-			k.broker.closeConnection(con.Addr) // 关闭过期连接
+			k.broker.Logger().Info(fmt.Sprintf(
+				"register timeout, actively close the connection with: %s", event.Addr,
+			))
+			k.broker.closeConnection(event.Addr) // 关闭过期连接
 			// 当连接被关闭时，会触发 OnClosed 回调，因此无需主动删除记录
 			//k.broker.RemoveConsumer(con.Addr)
-			k.broker.EventHandler().OnConsumerRegisterTimeout(con)
-		}()
-	}
-
-	for _, c := range producers {
-		con := c
-		go func() {
-			k.broker.Logger().Info("producer register timeout, actively close the connection with: " + con.Addr)
-			k.broker.closeConnection(con.Addr)
-			k.broker.EventHandler().OnProducerRegisterTimeout(con)
+			switch event.LinkType {
+			case proto.ProducerLinkType:
+				k.broker.EventHandler().OnProducerRegisterTimeout(event)
+			case proto.ConsumerLinkType:
+				k.broker.EventHandler().OnConsumerRegisterTimeout(event)
+			}
 		}()
 	}
 }
 
-func (k *Monitor) closeHeartbeatTimeout(consumers, producers []TimeoutEvent) {
+func (k *Monitor) closeHeartbeatTimeout(timeouts []TimeoutEvent) {
 	// 关闭过期连接
-	for _, c := range consumers {
-		con := c
+	for _, c := range timeouts {
+		event := c
 		go func() {
-			k.broker.Logger().Info("consumer heartbeat timeout, actively close the connection with: " + con.Addr)
-			k.broker.closeConnection(con.Addr)
-			k.broker.EventHandler().OnConsumerHeartbeatTimeout(con)
-		}()
-	}
-	for _, c := range producers {
-		con := c
-		go func() {
-			k.broker.Logger().Info("producer heartbeat timeout, actively close the connection with: " + con.Addr)
-			k.broker.closeConnection(con.Addr)
-			k.broker.EventHandler().OnProducerHeartbeatTimeout(con)
+			k.broker.Logger().Info(fmt.Sprintf(
+				"%s heartbeat timeout, actively close the connection with: %s",
+				event.LinkType, event.Addr,
+			))
+			k.broker.closeConnection(event.Addr)
+			switch event.LinkType {
+			case proto.ProducerLinkType:
+				k.broker.EventHandler().OnProducerHeartbeatTimeout(event)
+			case proto.ConsumerLinkType:
+				k.broker.EventHandler().OnConsumerHeartbeatTimeout(event)
+			}
 		}()
 	}
 }
 
-// ============================= TimeInfo methods =============================
+// ============================= TimeInfo events =============================
 
 func (k *Monitor) OnClientConnected(addr string) {
 	k.lock.Lock()
@@ -199,7 +163,7 @@ func (k *Monitor) OnClientConnected(addr string) {
 		LinkType:     "",
 		ConnectedAt:  time.Now().Unix(),
 		RegisteredAt: 0,
-		HeartbeatAt:  0,
+		HeartbeatAt:  time.Now().Unix(),
 	})
 }
 
@@ -222,6 +186,8 @@ func (k *Monitor) OnClientRegistered(addr string, linkType proto.LinkType) {
 		if k.timeInfos[i].Addr == addr {
 			k.timeInfos[i].LinkType = linkType
 			k.timeInfos[i].RegisteredAt = time.Now().Unix()
+			// 应在注册成功之后，立刻更新心跳时间戳，以避免在注册成功后立刻被认为超时
+			k.timeInfos[i].HeartbeatAt = time.Now().Unix()
 			return
 		}
 	}
@@ -266,12 +232,12 @@ func (k *Monitor) OnStartup() {
 
 func (k *Monitor) Do(ctx context.Context) error {
 	k.lock.RLock()
-	rTimeoutConsumers, rTimeoutProducers, hTimeoutConsumers, hTimeoutProducers := k.findTimeout()
+	rTimeout, hTimeout := k.findTimeout()
 	k.lock.RUnlock()
 
 	// 必须先释放锁才能继续清除连接
-	k.closeRegisterTimeout(rTimeoutConsumers, rTimeoutProducers)
-	k.closeHeartbeatTimeout(hTimeoutConsumers, hTimeoutProducers)
+	k.closeRegisterTimeout(rTimeout)
+	k.closeHeartbeatTimeout(hTimeout)
 
 	return nil
 }

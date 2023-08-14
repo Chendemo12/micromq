@@ -18,10 +18,10 @@ import (
 
 type ConsumerHandler interface {
 	Topics() []string
-	Handler(record *proto.ConsumerMessage)
-	OnConnected()      // （同步执行）当连接成功时,发出的信号, 此事件必须在执行完成之后才会进行后续的处理，因此需自行控制
-	OnClosed()         // （同步执行）当连接中断时,发出的信号, 此事件必须在执行完成之后才会进行重连操作（若有）
-	OnRegisterFailed() // （同步执行）当注册失败触发的事件
+	Handler(record *proto.ConsumerMessage) // （异步执行）
+	OnConnected()                          // （同步执行）当连接成功时,发出的信号, 此事件必须在执行完成之后才会进行后续的处理，因此需自行控制
+	OnClosed()                             // （同步执行）当连接中断时,发出的信号, 此事件必须在执行完成之后才会进行重连操作（若有）
+	OnRegisterFailed()                     // （同步执行）当注册失败触发的事件
 	// OnNotImplementMessageType 当收到一个未实现的消息帧时触发的事件
 	OnNotImplementMessageType(frame *proto.TransferFrame, c transfer.Conn)
 }
@@ -49,8 +49,8 @@ type Consumer struct {
 
 // 将消息帧转换为消费者消息，中间经过了一个协议转换
 func (c *Consumer) toCMessage(frame *proto.TransferFrame) ([]*proto.ConsumerMessage, error) {
-
 	var err error
+
 	cms := make([]*proto.ConsumerMessage, 0)
 	reader := bytes.NewReader(frame.Data)
 
@@ -121,8 +121,8 @@ func (c *Consumer) handleRegisterMessage(frame *proto.TransferFrame, con transfe
 }
 
 func (c *Consumer) distribute(frame *proto.TransferFrame, con transfer.Conn) {
-	switch frame.Type {
 
+	switch frame.Type {
 	case proto.RegisterMessageRespType:
 		c.handleRegisterMessage(frame, con)
 
@@ -157,7 +157,6 @@ func (c *Consumer) ReRegister(r transfer.Conn) error {
 // OnAccepted 当TCP连接成功时会自行发送注册消息
 func (c *Consumer) OnAccepted(r *tcp.Remote) error {
 	c.isConnected.Store(true)
-
 	c.handler.OnConnected()
 
 	// 连接成功,发送注册消息
