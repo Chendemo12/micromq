@@ -42,7 +42,7 @@ func (c *DnsConsumer) Start() error {
 		Host:   c.Host,
 		Port:   c.Port,
 		Ack:    sdk.AllConfirm,
-		Ctx:    c.ctx,
+		PCtx:   c.ctx,
 		Logger: nil,
 		Token:  c.Token,
 	}, c)
@@ -77,6 +77,7 @@ func TestSdkConsumer(t *testing.T) {
 
 		<-ctx.Done()
 		cancel()
+
 		t.Logf("consumer finished.")
 	}
 }
