@@ -12,7 +12,9 @@ import (
 //
 
 func (e *Engine) registerParser(args *ChainArgs) (stop bool) {
+	args.rm = &proto.RegisterMessage{}
 	args.frame.Type = proto.RegisterMessageRespType
+
 	err := args.frame.Unmarshal(args.rm)
 	if err != nil {
 		// 注册消息帧解析失败，令重新发起注册
@@ -119,6 +121,7 @@ func (e *Engine) registerCallback(args *ChainArgs) (stop bool) {
 // ============================= producer message =============================
 //
 
+// 处理生产者消息帧，此处需要判断生产者是否已注册
 func (e *Engine) producerNotFound(args *ChainArgs) (stop bool) {
 	producer, exist := e.QueryProducer(args.con.Addr())
 
@@ -181,6 +184,16 @@ func (e *Engine) pmPublisher(args *ChainArgs) (stop bool) {
 			ReceiveTime: time.Now().Unix(),
 		}
 	}
+
+	return
+}
+
+//
+// ============================= heartbeat message =============================
+//
+
+func (e *Engine) receiveHeartbeat(args *ChainArgs) (stop bool) {
+	e.monitor.OnClientHeartbeat(args.con.Addr())
 
 	return
 }

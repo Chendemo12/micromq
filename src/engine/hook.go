@@ -27,7 +27,3 @@ type ChainArgs struct {
 }
 
 type FlowHandler func(args *ChainArgs) (stop bool)
-
-func emptyHookHandler(_ *proto.TransferFrame, con transfer.Conn) (goon bool, err error) {
-	return false, nil
-}

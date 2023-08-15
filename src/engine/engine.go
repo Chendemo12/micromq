@@ -57,23 +57,27 @@ type Engine struct {
 	consumers            []*Consumer // 消费者
 	topics               *sync.Map
 	transfer             transfer.Transfer
-	producerSendInterval time.Duration                      // 生产者发送消息的时间间隔 = 500ms
-	cpLock               *sync.RWMutex                      // consumer producer add/remove lock
-	hooks                [proto.TotalNumberOfMessages]*Hook // 各种协议的处理者
-	registerFlow         []FlowHandler
-	pmFlow               []FlowHandler
+	producerSendInterval time.Duration // 生产者发送消息的时间间隔 = 500ms
+	cpLock               *sync.RWMutex // consumer producer add/remove lock
 	argsPool             *sync.Pool
 	scheduler            *cronjob.Scheduler
 	monitor              *Monitor
+	// 各种协议的处理者
+	hooks [proto.TotalNumberOfMessages]*Hook
+	// 消息帧处理链，每一个链内部无需直接向客户端写入消息,通过修改frame实现返回消息
+	flows [proto.TotalNumberOfMessages][]FlowHandler
 }
 
 func (e *Engine) beforeServe() *Engine {
 	// 初始化全部内存对象
 	for i := 0; i < proto.TotalNumberOfMessages; i++ {
-		e.hooks[i] = &Hook{ // 初始化为未实现
+		// 初始化为未实现
+		e.hooks[i] = &Hook{
 			Type:    proto.NotImplementMessageType,
-			Handler: emptyHookHandler,
+			Handler: e.defaultHandler,
 		}
+		// 初始化一个空流程链
+		e.flows[i] = make([]FlowHandler, 0)
 	}
 
 	e.producers = make([]*Producer, e.conf.MaxOpenConn)
@@ -105,7 +109,7 @@ func (e *Engine) beforeServe() *Engine {
 	// 修改全局加解密器
 	proto.SetGlobalCrypto(e.conf.Crypto)
 
-	e.bindProtoHandler()
+	e.bindMessageHandler()
 	e.bindTransfer()
 	return e
 }
@@ -125,28 +129,31 @@ func (e *Engine) bindTransfer() *Engine {
 	return e
 }
 
-// 绑定处理器
-func (e *Engine) bindProtoHandler() *Engine {
-	e.registerFlow = []FlowHandler{
+// 注册协议，绑定处理器
+func (e *Engine) bindMessageHandler() *Engine {
+
+	// 登陆注册
+	e.hooks[proto.RegisterMessageType].Type = proto.RegisterMessageType
+	e.flows[proto.RegisterMessageType] = []FlowHandler{
 		e.registerParser,
 		e.registerAuth,
 		e.registerAllow,
 		e.registerCallback,
 	}
 
-	e.pmFlow = []FlowHandler{
+	// 生产者消息
+	e.hooks[proto.PMessageType].Type = proto.PMessageType
+	e.flows[proto.PMessageType] = []FlowHandler{
 		e.producerNotFound,
 		e.pmParser,
 		e.pmPublisher,
 	}
 
-	// 登陆注册
-	e.hooks[proto.RegisterMessageType].Type = proto.RegisterMessageType
-	e.hooks[proto.RegisterMessageType].Handler = e.registerHandler
-
-	// 生产者消息
-	e.hooks[proto.PMessageType].Type = proto.PMessageType
-	e.hooks[proto.PMessageType].Handler = e.pmHandler
+	// 心跳保活
+	e.hooks[proto.HeartbeatMessageType].Type = proto.HeartbeatMessageType
+	e.flows[proto.HeartbeatMessageType] = []FlowHandler{
+		e.receiveHeartbeat,
+	}
 
 	return e
 }
@@ -207,10 +214,10 @@ func (e *Engine) putArgs(args *ChainArgs) {
 }
 
 // 将一系列处理过程组合成一条链
-func (e *Engine) handlerFlow(args *ChainArgs, links []FlowHandler) (bool, error) {
+func (e *Engine) handlerFlow(args *ChainArgs, messageType proto.MessageType) (bool, error) {
 	defer e.putArgs(args)
 
-	for _, link := range links {
+	for _, link := range e.flows[messageType] {
 		stop := link(args)
 		if stop { // 此环节决定终止后续流程
 			return false, args.err
@@ -229,6 +236,12 @@ func (e *Engine) handlerFlow(args *ChainArgs, links []FlowHandler) (bool, error)
 	}
 
 	return true, nil
+}
+
+func (e *Engine) defaultHandler(frame *proto.TransferFrame, con transfer.Conn) (bool, error) {
+	args := e.getArgs(frame, con)
+
+	return e.handlerFlow(args, frame.Type)
 }
 
 // 分发消息
@@ -263,22 +276,6 @@ func (e *Engine) distribute(frame *proto.TransferFrame, con transfer.Conn) {
 			"send <message:%d> to '%s' failed: %s", frame.Type, con.Addr(), err,
 		))
 	}
-}
-
-// 处理注册消息, 内部无需返回消息,通过修改frame实现返回消息
-func (e *Engine) registerHandler(frame *proto.TransferFrame, con transfer.Conn) (bool, error) {
-	args := e.getArgs(frame, con)
-	args.rm = &proto.RegisterMessage{}
-
-	return e.handlerFlow(args, e.registerFlow)
-}
-
-// 处理生产者消息帧，此处需要判断生产者是否已注册
-// 内部无需返回消息,通过修改frame实现返回消息
-func (e *Engine) pmHandler(frame *proto.TransferFrame, con transfer.Conn) (bool, error) {
-	args := e.getArgs(frame, con)
-
-	return e.handlerFlow(args, e.pmFlow)
 }
 
 // 断开与客户端的连接

@@ -354,10 +354,10 @@ type MessageResponse struct {
 	Offset      uint64                `json:"offset"`
 	ReceiveTime int64                 `json:"receive_time"`
 	// 定时器间隔，单位ms，仅生产者有效，生产者需要按照此间隔发送帧消息
-	TickerInterval int `json:"ticker_duration"`
+	TickerInterval int `json:"ticker_duration" description:"定时器间隔，单位ms"`
 	// 消费者需要按照此参数，在此周期内向服务端发送心跳
 	// 生产者在此周期内若没有数据产生，也应发送心跳
-	Keepalive float64 `json:"keepalive"`
+	Keepalive float64 `json:"keepalive" description:"心跳间隔，单位s"`
 }
 
 func (m *MessageResponse) String() string {

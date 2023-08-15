@@ -16,39 +16,38 @@ import (
 )
 
 type ProducerHandler interface {
-	OnClose()                                            // 阻塞调用
-	OnRegistered()                                       // 阻塞调用
-	OnRegisterFailed(status proto.MessageResponseStatus) // 阻塞调用, 当注册失败触发的事件
-	OnRegisterExpire()                                   // 阻塞调用
+	OnConnected()                                        // （同步执行）当连接成功时触发的事件, 此事件必须在执行完成之后才会进行后续的处理，因此需自行控制
+	OnClosed()                                           // （同步执行）当连接中断时触发的事件, 此事件必须在执行完成之后才会进行重连操作（若有）
+	OnRegistered()                                       // （同步执行）当注册成功触发的事件
+	OnRegisterFailed(status proto.MessageResponseStatus) // （同步执行）当注册失败触发的事件
+	OnRegisterExpire()                                   // （同步执行）当连接中断时触发的事件, 此事件必须在执行完成之后才会进行重连操作（若有）                                  // 阻塞调用
 	// OnNotImplementMessageType 当收到一个未实现的消息帧时触发的事件
-	OnNotImplementMessageType(frame *proto.TransferFrame, r transfer.Conn)
+	OnNotImplementMessageType(frame *proto.TransferFrame, con transfer.Conn)
 }
 
 // PHandler 默认实现
-type PHandler struct {
-	logger logger.Iface
-}
+type PHandler struct{}
 
-func (h PHandler) OnClose() {}
-
-func (h PHandler) OnRegistered() {}
-
+func (h PHandler) OnConnected()      {}
+func (h PHandler) OnClosed()         {}
+func (h PHandler) OnRegistered()     {}
 func (h PHandler) OnRegisterExpire() {}
 
 func (h PHandler) OnRegisterFailed(status proto.MessageResponseStatus) {}
 
-func (h PHandler) OnNotImplementMessageType(frame *proto.TransferFrame, r transfer.Conn) {}
+func (h PHandler) OnNotImplementMessageType(frame *proto.TransferFrame, con transfer.Conn) {}
 
 // Producer 生产者, 通过 Send 发送的消息并非会立即投递给服务端
 // 而是会按照服务器下发的配置定时批量发送消息,通常为500ms
+// TODO: import Broker
 type Producer struct {
-	conf          *Config      //
-	link          Link         // 底层数据连接
-	isConnected   *atomic.Bool // tcp是否连接成功
-	isRegister    *atomic.Bool // 是否注册成功
-	regFrameBytes []byte       // 注册消息帧字节流
+	conf          *Config                //
+	isConnected   *atomic.Bool           // tcp是否连接成功
+	isRegister    *atomic.Bool           // 是否注册成功
+	link          Link                   // 底层数据连接
+	regFrameBytes []byte                 // 注册消息帧字节流
+	resp          *proto.MessageResponse // 注册响应
 	queue         chan *proto.ProducerMessage
-	tickInterval  time.Duration
 	ctx           context.Context
 	cancel        context.CancelFunc
 	handler       ProducerHandler
@@ -72,8 +71,37 @@ func (p *Producer) tick() {
 			return
 		default:
 			// 此操作以支持实时修改发送周期
-			time.Sleep(p.tickInterval)
+			time.Sleep(p.TickerInterval())
 			p.dingDong <- struct{}{} // 发送信号
+		}
+	}
+}
+
+func (p *Producer) heartbeat() {
+	for {
+		select {
+		case <-p.Done():
+			return
+		default:
+			// 此操作以支持实时修改发送周期
+			time.Sleep(p.HeartbeatInterval())
+			if !p.IsRegistered() {
+				continue
+			}
+			// 发送心跳
+			m := &proto.HeartbeatMessage{
+				Type:      proto.ProducerLinkType,
+				CreatedAt: time.Now().Unix(),
+			}
+			frame := framePool.Get()
+			_bytes, err := frame.BuildFrom(m)
+			// release
+			framePool.Put(frame)
+			if err != nil {
+				continue
+			}
+			_, _ = p.link.Write(_bytes)
+			_ = p.link.Drain()
 		}
 	}
 }
@@ -85,7 +113,7 @@ func (p *Producer) sendToServer() {
 			if rate > 10 {
 				rate = 2
 			}
-			time.Sleep(p.tickInterval * time.Duration(rate))
+			time.Sleep(p.TickerInterval() * time.Duration(rate))
 			rate++ // 等待时间逐渐延长
 			continue
 		}
@@ -128,16 +156,27 @@ func (p *Producer) sendToServer() {
 	}
 }
 
-// 修改滴答周期, 此周期由服务端修改
-func (p *Producer) modifyTick(interval time.Duration) {
-	if interval < time.Second*10 && interval > time.Millisecond*100 {
-		p.tickInterval = interval
+func (p *Producer) distribute(frame *proto.TransferFrame, r transfer.Conn) {
+	switch frame.Type {
+	case proto.RegisterMessageRespType:
+		p.handleRegisterMessage(frame, r)
+
+	case proto.ReRegisterMessageType:
+		p.isRegister.Store(false)
+		p.Logger().Debug("producer register expire, sever let re-register.")
+		p.handler.OnRegisterExpire()
+		_ = p.ReRegister(r)
+
+	case proto.MessageRespType:
+		p.receiveFin()
+
+	default: // 未识别的帧类型
+		p.handler.OnNotImplementMessageType(frame, r)
 	}
 }
 
 func (p *Producer) handleRegisterMessage(frame *proto.TransferFrame, r transfer.Conn) {
-	form := &proto.MessageResponse{}
-	err := frame.Unmarshal(form)
+	err := frame.Unmarshal(p.resp)
 	if err != nil {
 		p.Logger().Warn("register message response unmarshal failed: ", err.Error())
 		_ = p.ReRegister(r) // retry
@@ -145,22 +184,14 @@ func (p *Producer) handleRegisterMessage(frame *proto.TransferFrame, r transfer.
 	}
 
 	// 处理注册响应, 目前由服务器保证重新注册等流程
-	if form.Status == proto.AcceptedStatus {
+	if p.resp.Status == proto.AcceptedStatus {
 		p.Logger().Info("producer register successfully")
-	} else {
-		p.Logger().Warn("producer register failed: ", proto.GetMessageResponseStatusText(form.Status))
-	}
-
-	switch form.Status {
-	case proto.AcceptedStatus:
 		p.isRegister.Store(true)
 		p.handler.OnRegistered()
-	case proto.RefusedStatus:
+	} else {
+		p.Logger().Warn("producer register failed: ", proto.GetMessageResponseStatusText(p.resp.Status))
 		p.isRegister.Store(false)
-		p.handler.OnRegisterFailed(proto.RefusedStatus)
-	case proto.TokenIncorrectStatus:
-		p.isRegister.Store(false)
-		p.handler.OnRegisterFailed(proto.TokenIncorrectStatus)
+		p.handler.OnRegisterFailed(p.resp.Status)
 	}
 }
 
@@ -169,6 +200,9 @@ func (p *Producer) IsConnected() bool { return p.isConnected.Load() }
 
 // IsRegistered 向服务端注册消费者是否成功
 func (p *Producer) IsRegistered() bool { return p.isRegister.Load() }
+
+// StatusOK 连接状态是否正常
+func (p *Producer) StatusOK() bool { return p.isConnected.Load() && p.isRegister.Load() }
 
 // CanPublisher 是否可以向服务器发送消息
 func (p *Producer) CanPublisher() bool {
@@ -184,25 +218,6 @@ func (p *Producer) ReRegister(r transfer.Conn) error {
 	p.isRegister.Store(false)
 	_, _ = r.Write(p.regFrameBytes)
 	return r.Drain()
-}
-
-func (p *Producer) distribute(frame *proto.TransferFrame, r transfer.Conn) {
-	switch frame.Type {
-	case proto.RegisterMessageRespType:
-		p.handleRegisterMessage(frame, r)
-
-	case proto.ReRegisterMessageType:
-		p.isRegister.Store(false)
-		p.Logger().Warn("producer register expire, sever let re-register.")
-		p.handler.OnRegisterExpire()
-		_ = p.ReRegister(r)
-
-	case proto.MessageRespType:
-		p.receiveFin()
-
-	default: // 未识别的帧类型
-		p.handler.OnNotImplementMessageType(frame, r)
-	}
 }
 
 // NewRecord 从池中初始化一个新的消息记录
@@ -247,21 +262,38 @@ func (p *Producer) Send(fn func(record *proto.ProducerMessage) error) error {
 	return p.Publisher(msg)
 }
 
+// TickerInterval 数据发送周期
+func (p *Producer) TickerInterval() time.Duration {
+	if p.resp.TickerInterval == 0 {
+		return DefaultProducerSendInterval
+	}
+	return time.Duration(p.resp.TickerInterval) * time.Millisecond
+}
+
+// HeartbeatInterval 心跳周期
+func (p *Producer) HeartbeatInterval() time.Duration {
+	if p.resp.Keepalive == 0 {
+		return DefaultProducerSendInterval * 30 // 15s
+	}
+	return time.Duration(p.resp.Keepalive) * time.Second
+}
+
 // ================================ TCP handler ===============================
 
 func (p *Producer) OnAccepted(r *tcp.Remote) error {
-	p.Logger().Info("producer connected, send register message...")
-
+	p.Logger().Debug("producer connected, send register message...")
+	p.resp = &proto.MessageResponse{}
 	p.isConnected.Store(true)
+	p.handler.OnConnected()
 	return p.ReRegister(r)
 }
 
 func (p *Producer) OnClosed(_ *tcp.Remote) error {
-	p.Logger().Info("producer connection lost, reconnect...")
+	p.Logger().Warn("producer connection lost, reconnect...")
 
 	p.isConnected.Store(false)
 	p.isRegister.Store(false)
-	p.handler.OnClose()
+	p.handler.OnClosed()
 
 	return nil
 }
@@ -301,6 +333,7 @@ func (p *Producer) Start() error {
 	}
 
 	go p.tick()
+	go p.heartbeat()
 	go p.sendToServer()
 
 	return nil
@@ -340,16 +373,15 @@ func NewProducer(conf Config, handlers ...ProducerHandler) *Producer {
 		Token:  proto.CalcSHA(conf.Token),
 	}
 	p := &Producer{
-		conf:         c.Clean(),
-		isConnected:  &atomic.Bool{},
-		isRegister:   &atomic.Bool{},
-		queue:        make(chan *proto.ProducerMessage, 10),
-		tickInterval: DefaultProducerSendInterval, // 此值由服务更改
+		conf:        c.Clean(),
+		isConnected: &atomic.Bool{},
+		isRegister:  &atomic.Bool{},
+		queue:       make(chan *proto.ProducerMessage, 10),
 	}
 	p.ctx, p.cancel = context.WithCancel(p.conf.Ctx)
 	p.dingDong = make(chan struct{}, 1)
 
-	switch strings.ToUpper(c.Link) {
+	switch strings.ToUpper(c.LinkType) {
 	case "UDP": // TODO: 目前仅支持TCP
 
 	default:
@@ -365,7 +397,7 @@ func NewProducer(conf Config, handlers ...ProducerHandler) *Producer {
 	if len(handlers) > 0 && handlers[0] != nil {
 		p.handler = handlers[0]
 	} else {
-		p.handler = &PHandler{logger: conf.Logger}
+		p.handler = &PHandler{}
 	}
 
 	frame := framePool.Get()

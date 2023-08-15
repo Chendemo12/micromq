@@ -48,5 +48,5 @@ func (e DefaultEventHandler) OnProducerRegisterTimeout(event TimeoutEvent)  {}
 func (e DefaultEventHandler) OnCMConsumed(_ *HistoryRecord) {}
 
 func (e DefaultEventHandler) OnNotImplementMessageType(frame *proto.TransferFrame, con transfer.Conn) (bool, error) {
-	return emptyHookHandler(frame, con)
+	return false, nil
 }

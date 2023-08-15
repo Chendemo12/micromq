@@ -64,12 +64,15 @@ type Monitor struct {
 }
 
 func (k *Monitor) findTimeout() ([]TimeoutEvent, []TimeoutEvent) {
-	t := time.Now().Unix()
 	hInterval := k.broker.HeartbeatInterval() * keepaliveTimeoutRate
 	rInterval := k.broker.HeartbeatInterval() * registerTimeoutRate
 
 	rTimeout := make([]TimeoutEvent, 0)
 	hTimeout := make([]TimeoutEvent, 0)
+
+	k.lock.RLock()
+	defer k.lock.RUnlock()
+	t := time.Now().Unix()
 
 	for _, c := range k.timeInfos {
 		if c.IsFree() {
@@ -181,12 +184,14 @@ func (k *Monitor) OnClientClosed(addr string) {
 }
 
 func (k *Monitor) OnClientRegistered(addr string, linkType proto.LinkType) {
-	// TODO: 不加锁，是否OK
+	k.lock.Lock()
+	defer k.lock.Unlock()
+
 	for i := 0; i < len(k.timeInfos); i++ {
 		if k.timeInfos[i].Addr == addr {
 			k.timeInfos[i].LinkType = linkType
 			k.timeInfos[i].RegisteredAt = time.Now().Unix()
-			// 应在注册成功之后，立刻更新心跳时间戳，以避免在注册成功后立刻被认为超时
+			// 应在注册成功之后，立刻更新心跳时间戳，以避免在注册成功后被认为心跳超时
 			k.timeInfos[i].HeartbeatAt = time.Now().Unix()
 			return
 		}
@@ -194,6 +199,9 @@ func (k *Monitor) OnClientRegistered(addr string, linkType proto.LinkType) {
 }
 
 func (k *Monitor) OnClientHeartbeat(addr string) {
+	k.lock.Lock()
+	defer k.lock.Unlock()
+
 	for i := 0; i < len(k.timeInfos); i++ {
 		if k.timeInfos[i].Addr == addr {
 			k.timeInfos[i].HeartbeatAt = time.Now().Unix()
@@ -203,6 +211,9 @@ func (k *Monitor) OnClientHeartbeat(addr string) {
 }
 
 func (k *Monitor) ReadClientTimeInfo(addr string, linkType proto.LinkType) *TimeInfo {
+	k.lock.RLock()
+	defer k.lock.RUnlock()
+
 	for i := 0; i < len(k.timeInfos); i++ {
 		if k.timeInfos[i].Addr == addr && k.timeInfos[i].LinkType == linkType {
 			return k.timeInfos[i]
@@ -231,9 +242,7 @@ func (k *Monitor) OnStartup() {
 }
 
 func (k *Monitor) Do(ctx context.Context) error {
-	k.lock.RLock()
 	rTimeout, hTimeout := k.findTimeout()
-	k.lock.RUnlock()
 
 	// 必须先释放锁才能继续清除连接
 	k.closeRegisterTimeout(rTimeout)

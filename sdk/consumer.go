@@ -14,23 +14,40 @@ import (
 	"strings"
 	"sync"
 	"sync/atomic"
+	"time"
 )
 
 type ConsumerHandler interface {
+	ProducerHandler
 	Topics() []string
 	Handler(record *proto.ConsumerMessage) // （异步执行）
-	OnConnected()                          // （同步执行）当连接成功时,发出的信号, 此事件必须在执行完成之后才会进行后续的处理，因此需自行控制
-	OnClosed()                             // （同步执行）当连接中断时,发出的信号, 此事件必须在执行完成之后才会进行重连操作（若有）
-	OnRegisterFailed()                     // （同步执行）当注册失败触发的事件
-	// OnNotImplementMessageType 当收到一个未实现的消息帧时触发的事件
-	OnNotImplementMessageType(frame *proto.TransferFrame, c transfer.Conn)
 }
 
 type CHandler struct{}
 
-func (c *CHandler) OnConnected()      {}
-func (c *CHandler) OnClosed()         {}
-func (c *CHandler) OnRegisterFailed() {}
+func (c *CHandler) OnRegisterFailed(status proto.MessageResponseStatus) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (c *CHandler) OnRegisterExpire() {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (c *CHandler) Topics() []string {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (c *CHandler) Handler(record *proto.ConsumerMessage) {
+	//TODO implement me
+	panic("implement me")
+}
+
+func (c *CHandler) OnConnected()  {}
+func (c *CHandler) OnClosed()     {}
+func (c *CHandler) OnRegistered() {}
 
 func (c *CHandler) OnNotImplementMessageType(frame *proto.TransferFrame, con transfer.Conn) {}
 
@@ -38,13 +55,15 @@ func (c *CHandler) OnNotImplementMessageType(frame *proto.TransferFrame, con tra
 
 // Consumer 消费者
 type Consumer struct {
-	conf        *Config         //
-	link        Link            // 底层数据连接
-	handler     ConsumerHandler // 消息处理方法
-	isConnected *atomic.Bool    // tcp是否连接成功
-	isRegister  *atomic.Bool    // 是否注册成功
-	frameBytes  []byte
-	mu          *sync.Mutex
+	conf              *Config                //
+	isConnected       *atomic.Bool           // tcp是否连接成功
+	isRegister        *atomic.Bool           // 是否注册成功
+	link              Link                   // 底层数据连接
+	handler           ConsumerHandler        // 消息处理方法
+	resp              *proto.MessageResponse // 注册响应
+	frameBytes        []byte
+	heartbeatInterval time.Duration
+	mu                *sync.Mutex
 }
 
 // 将消息帧转换为消费者消息，中间经过了一个协议转换
@@ -95,8 +114,7 @@ func (c *Consumer) handleMessage(frame *proto.TransferFrame) {
 }
 
 func (c *Consumer) handleRegisterMessage(frame *proto.TransferFrame, con transfer.Conn) {
-	form := &proto.MessageResponse{}
-	err := frame.Unmarshal(form)
+	err := frame.Unmarshal(c.resp)
 	if err != nil {
 		c.Logger().Warn("register message response unmarshal failed: ", err.Error())
 		_ = c.ReRegister(con) // retry
@@ -104,19 +122,14 @@ func (c *Consumer) handleRegisterMessage(frame *proto.TransferFrame, con transfe
 	}
 
 	// 处理注册响应, 目前由服务器保证重新注册等流程
-	if form.Status == proto.AcceptedStatus {
+	if c.resp.Status == proto.AcceptedStatus {
 		c.Logger().Info("consumer register successfully")
-	} else {
-		c.Logger().Warn("consumer register failed: ", proto.GetMessageResponseStatusText(form.Status))
-	}
-
-	switch form.Status {
-	case proto.AcceptedStatus:
 		c.isRegister.Store(true)
-	case proto.RefusedStatus:
+		c.handler.OnRegistered()
+	} else {
+		c.Logger().Warn("consumer register failed: ", proto.GetMessageResponseStatusText(c.resp.Status))
 		c.isRegister.Store(false)
-	case proto.TokenIncorrectStatus:
-		c.isRegister.Store(false)
+		c.handler.OnRegisterFailed(c.resp.Status)
 	}
 }
 
@@ -128,7 +141,8 @@ func (c *Consumer) distribute(frame *proto.TransferFrame, con transfer.Conn) {
 
 	case proto.ReRegisterMessageType:
 		c.isRegister.Store(false)
-		c.Logger().Debug("sever let re-register")
+		c.Logger().Debug("consumer register expire, sever let re-register")
+		c.handler.OnRegisterExpire()
 		_ = c.ReRegister(con)
 
 	case proto.CMessageType:
@@ -139,7 +153,38 @@ func (c *Consumer) distribute(frame *proto.TransferFrame, con transfer.Conn) {
 	}
 }
 
+func (c *Consumer) heartbeat() {
+	for {
+		select {
+		case <-c.Done():
+			return
+		default:
+			// 此操作以支持实时修改发送周期
+			time.Sleep(c.HeartbeatInterval())
+			if !c.IsRegistered() {
+				continue
+			}
+			// 发送心跳
+			m := &proto.HeartbeatMessage{
+				Type:      proto.ConsumerLinkType,
+				CreatedAt: time.Now().Unix(),
+			}
+			frame := framePool.Get()
+			_bytes, err := frame.BuildFrom(m)
+			// release
+			framePool.Put(frame)
+			if err != nil {
+				continue
+			}
+			_, _ = c.link.Write(_bytes)
+			_ = c.link.Drain()
+		}
+	}
+}
+
 func (c *Consumer) Logger() logger.Iface { return c.conf.Logger }
+
+func (c *Consumer) Done() <-chan struct{} { return c.conf.Ctx.Done() }
 
 // HandlerFunc 获取注册的消息处理方法
 func (c *Consumer) HandlerFunc() ConsumerHandler { return c.handler }
@@ -152,11 +197,38 @@ func (c *Consumer) ReRegister(r transfer.Conn) error {
 	return err
 }
 
+// IsConnected 与服务器是否连接成功
+func (c *Consumer) IsConnected() bool { return c.isConnected.Load() }
+
+// IsRegistered 消费者是否注册成功
+func (c *Consumer) IsRegistered() bool { return c.isRegister.Load() }
+
+// TickerInterval 数据发送周期
+func (c *Consumer) TickerInterval() time.Duration {
+	if c.resp.TickerInterval == 0 {
+		return DefaultProducerSendInterval
+	}
+	return time.Duration(c.resp.TickerInterval) * time.Millisecond
+}
+
+// HeartbeatInterval 心跳周期
+func (c *Consumer) HeartbeatInterval() time.Duration {
+	if c.resp.Keepalive == 0 {
+		return DefaultProducerSendInterval * 30 // 15s
+	}
+	return time.Duration(c.resp.Keepalive) * time.Second
+}
+
+// StatusOK 连接状态是否正常
+func (c *Consumer) StatusOK() bool { return c.isConnected.Load() && c.isRegister.Load() }
+
 // ================================ TCP handler ===============================
 
 // OnAccepted 当TCP连接成功时会自行发送注册消息
 func (c *Consumer) OnAccepted(r *tcp.Remote) error {
+	c.Logger().Debug("consumer connected, send register message...")
 	c.isConnected.Store(true)
+	c.resp = &proto.MessageResponse{}
 	c.handler.OnConnected()
 
 	// 连接成功,发送注册消息
@@ -199,19 +271,12 @@ func (c *Consumer) Handler(r *tcp.Remote) error {
 // ================================ UDP handler ===============================
 //
 
-// IsConnected 与服务器是否连接成功
-func (c *Consumer) IsConnected() bool { return c.isConnected.Load() }
-
-// IsRegistered 消费者是否注册成功
-func (c *Consumer) IsRegistered() bool { return c.isRegister.Load() }
-
-// StatusOK 连接状态是否正常
-func (c *Consumer) StatusOK() bool { return c.isConnected.Load() && c.isRegister.Load() }
-
 // Start 异步启动
 func (c *Consumer) Start() error {
 	c.isRegister.Store(false)
 	c.isConnected.Store(false)
+
+	go c.heartbeat()
 
 	return c.link.Connect()
 }
@@ -260,7 +325,7 @@ func NewConsumer(conf Config, handler ConsumerHandler) (*Consumer, error) {
 		mu:          &sync.Mutex{},
 	}
 
-	switch strings.ToUpper(c.Link) {
+	switch strings.ToUpper(c.LinkType) {
 	case "TCP", "UDP": // TODO: 目前仅支持TCP
 		con.link = &TCPLink{
 			Host:     c.Host,
@@ -271,7 +336,7 @@ func NewConsumer(conf Config, handler ConsumerHandler) (*Consumer, error) {
 		}
 		con.link.SetTCPHandler(con) // TCP 消息处理接口
 	default:
-		return nil, errors.New("unsupported link: " + c.Link)
+		return nil, errors.New("unsupported link: " + c.LinkType)
 	}
 
 	frame := framePool.Get()
