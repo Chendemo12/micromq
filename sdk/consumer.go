@@ -115,6 +115,9 @@ func (client *Consumer) Logger() logger.Iface { return client.broker.Logger() }
 
 func (client *Consumer) Done() <-chan struct{} { return client.broker.Done() }
 
+// TokenCrypto Token加密器，亦可作为全局加密器
+func (client *Consumer) TokenCrypto() *proto.TokenCrypto { return client.broker.tokenCrypto }
+
 // HandlerFunc 获取注册的消息处理方法
 func (client *Consumer) HandlerFunc() ConsumerHandler { return client.handler }
 
@@ -177,13 +180,9 @@ func NewConsumer(conf Config, handler ConsumerHandler) (*Consumer, error) {
 
 	con.broker.init()
 	con.broker.SetTransfer("tcp") // TODO: 目前仅支持TCP
-	err := con.broker.SetRegisterMessage(&proto.RegisterMessage{
+	con.broker.SetRegisterMessage(&proto.RegisterMessage{
 		Topics: handler.Topics(),
 	})
-
-	if err != nil {
-		return nil, err
-	}
 
 	return con, nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Chendemo12/fastapi-tool/helper"
 	"github.com/Chendemo12/fastapi-tool/logger"
 	"github.com/Chendemo12/functools/tcp"
 	"github.com/Chendemo12/micromq/src/proto"
@@ -57,16 +58,17 @@ type Link interface {
 // Broker Broker连接管理，负责连接服务器并完成注册任务
 // 在检测到连接断开时主动重连
 type Broker struct {
-	conf          *Config
-	ctx           context.Context
-	cancel        context.CancelFunc
-	isConnected   *atomic.Bool           // tcp是否连接成功
-	isRegister    *atomic.Bool           // 是否注册成功
-	resp          *proto.MessageResponse // 注册响应
-	regFrameBytes []byte                 // 注册消息帧字节流
-	link          Link                   // 底层数据连接
-	linkType      proto.LinkType         // 客户端连接
-	event         ProducerHandler        // 事件触发器
+	conf        *Config
+	ctx         context.Context
+	cancel      context.CancelFunc
+	isConnected *atomic.Bool           // tcp是否连接成功
+	isRegister  *atomic.Bool           // 是否注册成功
+	resp        *proto.MessageResponse // 注册响应
+	reg         *proto.RegisterMessage // 注册消息
+	link        Link                   // 底层数据连接
+	linkType    proto.LinkType         // 客户端连接
+	event       ProducerHandler        // 事件触发器
+	tokenCrypto *proto.TokenCrypto     // 用于注册消息加解密
 	// 消息处理器
 	messageHandler func(frame *proto.TransferFrame, con transfer.Conn)
 }
@@ -110,7 +112,7 @@ func (b *Broker) distribute(frame *proto.TransferFrame, con transfer.Conn) {
 
 func (b *Broker) init() *Broker {
 	b.ctx, b.cancel = context.WithCancel(b.conf.PCtx)
-
+	b.tokenCrypto = &proto.TokenCrypto{Token: b.conf.Token}
 	b.resp = &proto.MessageResponse{}
 	b.isRegister = &atomic.Bool{}
 	b.isConnected = &atomic.Bool{}
@@ -166,7 +168,26 @@ func (b *Broker) HeartbeatTask() {
 
 // ReRegister 重新发起注册流程
 func (b *Broker) ReRegister() error {
-	_, _ = b.link.Write(b.regFrameBytes)
+	frame := framePool.Get()
+	defer framePool.Put(frame)
+
+	_bytes, err := helper.JsonMarshal(b.reg)
+	if err != nil {
+		b.Logger().Warn("register message marshal failed: ", err.Error())
+		return err
+	}
+
+	_bytes, err = b.tokenCrypto.Encrypt(_bytes)
+	if err != nil {
+		b.Logger().Warn("register message encrypt failed: ", err.Error())
+		return err
+	}
+
+	_bytes, err = frame.BuildWith(proto.RegisterMessageType, _bytes)
+	if err != nil {
+		return err
+	}
+	_, _ = b.link.Write(_bytes)
 
 	return b.link.Drain()
 }
@@ -187,22 +208,13 @@ func (b *Broker) HeartbeatInterval() time.Duration {
 	return time.Duration(b.resp.Keepalive) * time.Second
 }
 
-func (b *Broker) SetRegisterMessage(message *proto.RegisterMessage) error {
-	frame := framePool.Get()
+func (b *Broker) SetRegisterMessage(message *proto.RegisterMessage) *Broker {
 	message.Type = b.linkType
 	message.Token = b.conf.Token
 	message.Ack = b.conf.Ack
+	b.reg = message
 
-	_bytes, err := frame.BuildFrom(message)
-	framePool.Put(frame)
-
-	if err != nil {
-		return err
-	}
-
-	b.regFrameBytes = _bytes
-
-	return nil
+	return b
 }
 
 func (b *Broker) SetTransfer(trans string) *Broker {
@@ -264,6 +276,7 @@ func (b *Broker) Handler(r *tcp.Remote) error {
 				b.Logger().Warn(fmt.Errorf("%s parse frame failed: %v", b.linkType, err))
 			}
 		} else {
+			// TODO: 实现对全部消息的解密和加密
 			b.distribute(f, client)
 		}
 	}(frame, r, err)

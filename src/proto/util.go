@@ -2,18 +2,12 @@ package proto
 
 import (
 	"container/list"
-	"crypto/sha1"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"github.com/Chendemo12/fastapi-tool/helper"
 	"io"
 	"sync"
 	"sync/atomic"
 )
-
-// CalcSHA 计算一个字符串的hash值
-var CalcSHA = CalcSHA1
 
 type NoCopy struct{}
 
@@ -100,33 +94,6 @@ func (q *Queue) PopLeft() any {
 	element := q.list.Front()
 	q.list.Remove(element)
 	return element.Value
-}
-
-// CalcSHA256 计算字符串的哈希值
-func CalcSHA256(str string) string {
-	if str == "" {
-		return ""
-	}
-
-	h := sha256.New()
-	h.Write([]byte(str))
-	hashValue := h.Sum(nil)
-
-	// 将哈希值转换为16进制字符串输出
-	return hex.EncodeToString(hashValue)
-}
-
-// CalcSHA1 计算字符串的哈希值
-func CalcSHA1(str string) string {
-	if str == "" {
-		return ""
-	}
-
-	h := sha1.New()
-	h.Write([]byte(str))
-	hashValue := h.Sum(nil)
-
-	return hex.EncodeToString(hashValue)
 }
 
 // ----------------------------------------------------------------------------

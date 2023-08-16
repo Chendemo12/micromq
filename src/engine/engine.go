@@ -62,6 +62,7 @@ type Engine struct {
 	argsPool             *sync.Pool
 	scheduler            *cronjob.Scheduler
 	monitor              *Monitor
+	tokenCrypto          *proto.TokenCrypto // 用于注册消息加解密
 	// 各种协议的处理者
 	hooks [proto.TotalNumberOfMessages]*Hook
 	// 消息帧处理链，每一个链内部无需直接向客户端写入消息,通过修改frame实现返回消息
@@ -106,7 +107,11 @@ func (e *Engine) beforeServe() *Engine {
 	e.scheduler = cronjob.NewScheduler(e.Ctx(), e.Logger())
 	e.scheduler.AddCronjob(e.monitor)
 
-	// 修改全局加解密器
+	// 修改加解密器
+	if e.tokenCrypto == nil {
+		e.tokenCrypto = &proto.TokenCrypto{Token: e.conf.Token}
+	}
+	//proto.SetGlobalCrypto(e.tokenCrypto)
 	proto.SetGlobalCrypto(e.conf.Crypto)
 
 	e.bindMessageHandler()
@@ -231,6 +236,7 @@ func (e *Engine) handlerFlow(args *ChainArgs, messageType proto.MessageType) (bo
 
 	// 需要返回响应，构建返回值
 	args.frame.Data, args.err = args.resp.Build()
+	// TODO: 实现对全部消息的加密
 	if args.err != nil {
 		return false, fmt.Errorf("register response message build failed: %v", args.err)
 	}
@@ -251,6 +257,7 @@ func (e *Engine) distribute(frame *proto.TransferFrame, con transfer.Conn) {
 
 	if proto.GetDescriptor(frame.Type).MessageType() != proto.NotImplementMessageType {
 		// 协议已实现
+		// TODO: 实现对全部消息的解密
 		needResp, err = e.hooks[frame.Type].Handler(frame, con)
 	} else {
 		// 此协议未注册, 通过事件回调处理

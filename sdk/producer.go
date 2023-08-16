@@ -143,6 +143,9 @@ func (client *Producer) Logger() logger.Iface { return client.broker.Logger() }
 
 func (client *Producer) Done() <-chan struct{} { return client.broker.Done() }
 
+// TokenCrypto Token加密器，亦可作为全局加密器
+func (client *Producer) TokenCrypto() *proto.TokenCrypto { return client.broker.tokenCrypto }
+
 // NewRecord 从池中初始化一个新的消息记录
 func (client *Producer) NewRecord() *proto.ProducerMessage {
 	return hmPool.GetPM()
@@ -252,7 +255,7 @@ func NewProducer(conf Config, handlers ...ProducerHandler) *Producer {
 
 	con.broker.init()
 	con.broker.SetTransfer("tcp") // TODO: 目前仅支持TCP
-	_ = con.broker.SetRegisterMessage(&proto.RegisterMessage{})
+	con.broker.SetRegisterMessage(&proto.RegisterMessage{})
 
 	return con
 }

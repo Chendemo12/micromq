@@ -97,8 +97,15 @@ func (f *TransferFrame) ParseChecksum() uint16 {
 }
 
 // Unmarshal 反序列化帧消息体
-func (f *TransferFrame) Unmarshal(msg Message) error {
+func (f *TransferFrame) Unmarshal(msg Message, decrypt ...DecryptFunc) error {
 	var err error
+	if len(decrypt) > 0 {
+		f.Data, err = decrypt[0](f.Data)
+		if err != nil {
+			return fmt.Errorf("message decrypt failed: %v", err)
+		}
+	}
+
 	// 针对不同的解析类型选择最优的解析方法
 	if msg.MarshalMethod() == BinaryMarshalMethod {
 		err = msg.ParseFrom(bytes.NewBuffer(f.Data))
@@ -110,7 +117,7 @@ func (f *TransferFrame) Unmarshal(msg Message) error {
 }
 
 // UnmarshalTo 将帧消息解析成某一个具体的协议消息
-func (f *TransferFrame) UnmarshalTo() (Message, error) {
+func (f *TransferFrame) UnmarshalTo(decrypt ...DecryptFunc) (Message, error) {
 	// 将Data解析为具体的消息，返回指针
 	var msg Message
 	var err error
@@ -128,13 +135,8 @@ func (f *TransferFrame) UnmarshalTo() (Message, error) {
 		msg = &NotImplementMessage{}
 	}
 
-	// 针对不同的解析类型选择最优的解析方法
-	if msg.MarshalMethod() == BinaryMarshalMethod {
-		err = msg.ParseFrom(bytes.NewBuffer(f.Data))
-	} else {
-		err = msg.Parse(f.Data)
-	}
-
+	// 解密并反序列化
+	err = f.Unmarshal(msg, decrypt...)
 	if err != nil {
 		return nil, err
 	}
@@ -148,20 +150,32 @@ func (f *TransferFrame) buildFields() {
 }
 
 // BuildWith 补充字段,编码消息帧
-func (f *TransferFrame) BuildWith(typ MessageType, data []byte) ([]byte, error) {
+func (f *TransferFrame) BuildWith(typ MessageType, data []byte, encrypt ...EncryptFunc) ([]byte, error) {
 	f.Type = typ
-	f.Data = data
+
+	if len(encrypt) < 1 {
+		f.Data = data
+		return f.Build()
+	}
+
+	// 开启加密
+	_bytes, err := encrypt[0](data)
+	if err != nil {
+		return nil, fmt.Errorf("message encrypt failed: %v", err)
+	}
+	f.Data = _bytes
+
 	return f.Build()
 }
 
 // BuildFrom 从协议中构建消息帧
-func (f *TransferFrame) BuildFrom(m Message) ([]byte, error) {
+func (f *TransferFrame) BuildFrom(m Message, encrypt ...EncryptFunc) ([]byte, error) {
 	_bytes, err := m.Build()
 	if err != nil {
 		return nil, err
 	}
 
-	return f.BuildWith(m.MessageType(), _bytes)
+	return f.BuildWith(m.MessageType(), _bytes, encrypt...)
 }
 
 // Build 编码消息帧 (最终方法)

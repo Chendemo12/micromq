@@ -227,15 +227,25 @@ func (e *Engine) BindMessageHandler(m proto.Message, handler HookHandler, texts 
 	}
 }
 
+// SetCrypto 修改全局加解密器, 必须在 Serve 之前设置
+func (e *Engine) SetCrypto(cry proto.Crypto) *Engine {
+	e.conf.Crypto = cry
+
+	return e
+}
+
+// TokenCrypto Token加密器，亦可作为全局加密器
+func (e *Engine) TokenCrypto() *proto.TokenCrypto { return e.tokenCrypto }
+
 // NeedToken 是否需要密钥认证
-func (e *Engine) NeedToken() bool { return e.conf.Token != "" }
+func (e *Engine) NeedToken() bool { return e.tokenCrypto.Token != "" }
 
 // IsTokenCorrect 判断客户端的token是否正确，若未开启token验证，则始终正确
 func (e *Engine) IsTokenCorrect(token string) bool {
-	if e.conf.Token == "" { // 未设置token验证
+	if e.tokenCrypto.Token == "" { // 未设置token验证
 		return true
 	}
-	return e.conf.Token == token
+	return e.tokenCrypto.Token == token
 }
 
 // Serve 阻塞运行
@@ -280,8 +290,6 @@ func New(cs ...Config) *Engine {
 	}
 
 	conf.Clean()
-	// 修改全局加解密器
-	proto.SetGlobalCrypto(conf.Crypto)
 
 	eng := &Engine{
 		conf:                 conf,
@@ -293,6 +301,9 @@ func New(cs ...Config) *Engine {
 			New: func() any { return &ChainArgs{} },
 		},
 	}
+	// 修改加解密器
+	eng.tokenCrypto = &proto.TokenCrypto{Token: conf.Token}
+	proto.SetGlobalCrypto(conf.Crypto)
 
 	return eng
 }
