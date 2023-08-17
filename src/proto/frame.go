@@ -17,7 +17,17 @@ import (
 //	取值	|   0x3C   |          |              |                    |              |   0x0D   |
 //		|----------|----------|--------------|--------------------|--------------|----------|
 //
-// TODO: 实现 Reader 和 Writer 接口
+//	# Usage：
+//
+//	将帧载荷解析成具体的协议：
+//		frame := TransferFrame{}
+//		frame.Unmarshal(X)
+//		X := frame.UnmarshalTo()
+//
+//	从消息构建帧：
+//		frame := TransferFrame{}
+//		frame.BuildWith(proto.MessageType, []byte{})
+//		frame.BuildFrom(X)
 type TransferFrame struct {
 	counter  uint64      // 用以追踪此对象的实例是否由池创建
 	Head     byte        // 恒为 FrameHead
@@ -64,11 +74,6 @@ func (f *TransferFrame) ParseFrom(reader io.Reader) error {
 	bc.i, bc.err = reader.Read(f.Checksum)
 	if bc.err != nil {
 		return fmt.Errorf("checksum date read failed: %v", bc.err)
-	}
-
-	f.Data, bc.err = GlobalCrypto().Decrypt(f.Data) // 解密消息体
-	if bc.err != nil {
-		return fmt.Errorf("payload decrypt failed: %v", bc.err)
 	}
 
 	return nil
@@ -120,7 +125,6 @@ func (f *TransferFrame) Unmarshal(msg Message, decrypt ...DecryptFunc) error {
 func (f *TransferFrame) UnmarshalTo(decrypt ...DecryptFunc) (Message, error) {
 	// 将Data解析为具体的消息，返回指针
 	var msg Message
-	var err error
 
 	switch f.Type {
 	case CMessageType:
@@ -136,7 +140,7 @@ func (f *TransferFrame) UnmarshalTo(decrypt ...DecryptFunc) (Message, error) {
 	}
 
 	// 解密并反序列化
-	err = f.Unmarshal(msg, decrypt...)
+	err := f.Unmarshal(msg, decrypt...)
 	if err != nil {
 		return nil, err
 	}
@@ -180,13 +184,6 @@ func (f *TransferFrame) BuildFrom(m Message, encrypt ...EncryptFunc) ([]byte, er
 
 // Build 编码消息帧 (最终方法)
 func (f *TransferFrame) Build() ([]byte, error) {
-	var err error
-
-	f.Data, err = GlobalCrypto().Encrypt(f.Data) // 加密
-	if err != nil {
-		return nil, fmt.Errorf("payload encrypt failed: %v", err)
-	}
-
 	f.buildFields()
 
 	length := f.Length()

@@ -115,7 +115,10 @@ func (client *Consumer) Logger() logger.Iface { return client.broker.Logger() }
 
 func (client *Consumer) Done() <-chan struct{} { return client.broker.Done() }
 
-// TokenCrypto Token加密器，亦可作为全局加密器
+// Crypto 全局加密器
+func (client *Consumer) Crypto() proto.Crypto { return client.broker.conf.Crypto }
+
+// TokenCrypto Token加解密器，亦可作为全局加解密器
 func (client *Consumer) TokenCrypto() *proto.TokenCrypto { return client.broker.tokenCrypto }
 
 // HandlerFunc 获取注册的消息处理方法

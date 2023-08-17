@@ -91,7 +91,7 @@ func (client *Producer) sendToServer() {
 			}
 
 			frame := framePool.Get()
-			_bytes, err := frame.BuildFrom(serverPM)
+			_bytes, err := frame.BuildFrom(serverPM, client.Crypto().Encrypt)
 
 			// release
 			framePool.Put(frame)
@@ -143,7 +143,10 @@ func (client *Producer) Logger() logger.Iface { return client.broker.Logger() }
 
 func (client *Producer) Done() <-chan struct{} { return client.broker.Done() }
 
-// TokenCrypto Token加密器，亦可作为全局加密器
+// Crypto 全局加密器
+func (client *Producer) Crypto() proto.Crypto { return client.broker.conf.Crypto }
+
+// TokenCrypto Token加解密器，亦可作为全局加密器
 func (client *Producer) TokenCrypto() *proto.TokenCrypto { return client.broker.tokenCrypto }
 
 // NewRecord 从池中初始化一个新的消息记录

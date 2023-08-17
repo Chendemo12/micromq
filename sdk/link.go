@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/Chendemo12/fastapi-tool/helper"
 	"github.com/Chendemo12/fastapi-tool/logger"
 	"github.com/Chendemo12/functools/tcp"
 	"github.com/Chendemo12/micromq/src/proto"
@@ -24,6 +23,7 @@ type Config struct {
 	PCtx     context.Context `json:"-"` // 父context，默认为 context.Background()
 	Logger   logger.Iface    `json:"-"`
 	Token    string          `json:"-"`
+	Crypto   proto.Crypto    `json:"-"` // 加解密器
 }
 
 func (c *Config) Clean() *Config {
@@ -41,6 +41,9 @@ func (c *Config) Clean() *Config {
 	}
 	if c.LinkType == "" {
 		c.LinkType = "tcp"
+	}
+	if c.Crypto == nil {
+		c.Crypto = proto.DefaultCrypto()
 	}
 
 	return c
@@ -153,7 +156,8 @@ func (b *Broker) HeartbeatTask() {
 				Type: b.linkType, CreatedAt: time.Now().Unix(),
 			}
 			frame := framePool.Get()
-			_bytes, err := frame.BuildFrom(m)
+			// 加密消息帧
+			_bytes, err := frame.BuildFrom(m, b.conf.Crypto.Encrypt)
 			// release
 			framePool.Put(frame)
 
@@ -171,19 +175,7 @@ func (b *Broker) ReRegister() error {
 	frame := framePool.Get()
 	defer framePool.Put(frame)
 
-	_bytes, err := helper.JsonMarshal(b.reg)
-	if err != nil {
-		b.Logger().Warn("register message marshal failed: ", err.Error())
-		return err
-	}
-
-	_bytes, err = b.tokenCrypto.Encrypt(_bytes)
-	if err != nil {
-		b.Logger().Warn("register message encrypt failed: ", err.Error())
-		return err
-	}
-
-	_bytes, err = frame.BuildWith(proto.RegisterMessageType, _bytes)
+	_bytes, err := frame.BuildFrom(b.reg, b.tokenCrypto.Encrypt)
 	if err != nil {
 		return err
 	}

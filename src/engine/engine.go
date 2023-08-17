@@ -18,7 +18,7 @@ type Config struct {
 	BufferSize       int             `json:"buffer_size"`   // 生产者消息历史记录最大数量
 	HeartbeatTimeout float64         `json:"heartbeat_timeout"`
 	Logger           logger.Iface    `json:"-"`
-	Crypto           proto.Crypto    `json:"-"` // 加密器
+	Crypto           proto.Crypto    `json:"-"` // 加解密器
 	Token            string          `json:"-"` // 注册认证密钥
 	EventHandler     EventHandler    `json:"-"` // 事件触发器
 	Ctx              context.Context `json:"-"`
@@ -46,6 +46,7 @@ func (c *Config) Clean() *Config {
 	if c.Ctx == nil {
 		c.Ctx = context.Background()
 	}
+
 	c.topicHistorySize = 100
 
 	return c
@@ -111,8 +112,6 @@ func (e *Engine) beforeServe() *Engine {
 	if e.tokenCrypto == nil {
 		e.tokenCrypto = &proto.TokenCrypto{Token: e.conf.Token}
 	}
-	//proto.SetGlobalCrypto(e.tokenCrypto)
-	proto.SetGlobalCrypto(e.conf.Crypto)
 
 	e.bindMessageHandler()
 	e.bindTransfer()
@@ -257,7 +256,6 @@ func (e *Engine) distribute(frame *proto.TransferFrame, con transfer.Conn) {
 
 	if proto.GetDescriptor(frame.Type).MessageType() != proto.NotImplementMessageType {
 		// 协议已实现
-		// TODO: 实现对全部消息的解密
 		needResp, err = e.hooks[frame.Type].Handler(frame, con)
 	} else {
 		// 此协议未注册, 通过事件回调处理
@@ -265,7 +263,15 @@ func (e *Engine) distribute(frame *proto.TransferFrame, con transfer.Conn) {
 	}
 
 	// 错误，或不需要回写返回值
-	if err != nil || !needResp {
+	if err != nil {
+		e.Logger().Warn(fmt.Sprintf(
+			"message: %s handle failed: %s",
+			proto.GetDescriptor(frame.Type).Text(), err.Error(),
+		))
+		return
+	}
+
+	if !needResp {
 		return
 	}
 

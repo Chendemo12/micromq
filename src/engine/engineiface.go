@@ -234,7 +234,10 @@ func (e *Engine) SetCrypto(cry proto.Crypto) *Engine {
 	return e
 }
 
-// TokenCrypto Token加密器，亦可作为全局加密器
+// Crypto 全局加解密器
+func (e *Engine) Crypto() proto.Crypto { return e.conf.Crypto }
+
+// TokenCrypto Token加解密器，亦可作为全局加解密器
 func (e *Engine) TokenCrypto() *proto.TokenCrypto { return e.tokenCrypto }
 
 // NeedToken 是否需要密钥认证
@@ -303,7 +306,6 @@ func New(cs ...Config) *Engine {
 	}
 	// 修改加解密器
 	eng.tokenCrypto = &proto.TokenCrypto{Token: conf.Token}
-	proto.SetGlobalCrypto(conf.Crypto)
 
 	return eng
 }

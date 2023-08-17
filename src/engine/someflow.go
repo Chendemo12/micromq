@@ -13,7 +13,9 @@ import (
 
 func (e *Engine) registerParser(args *ChainArgs) (stop bool) {
 	args.rm = &proto.RegisterMessage{}
+
 	// 无论注册成功与否都需要构建返回值
+	args.frame.Type = proto.RegisterMessageRespType
 	args.resp = &proto.MessageResponse{
 		Status:         proto.RefusedStatus,
 		Offset:         0,
@@ -22,11 +24,10 @@ func (e *Engine) registerParser(args *ChainArgs) (stop bool) {
 		Keepalive:      e.HeartbeatInterval(),
 	}
 
-	args.frame.Type = proto.RegisterMessageRespType
 	// 消息解密
 	err := args.frame.Unmarshal(args.rm, e.tokenCrypto.Decrypt)
 	if err != nil { // 解密或反序列化失败，禁止注册
-		e.Logger().Debug(args.con.Addr()+" register message decrypt failed: ", err.Error())
+		e.Logger().Debug(args.con.Addr()+" register ", err.Error())
 		args.resp.Status = proto.TokenIncorrectStatus
 	} else {
 		// 注册消息帧解析失败，令重新发起注册

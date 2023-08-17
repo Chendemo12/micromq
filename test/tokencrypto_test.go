@@ -1,74 +1,15 @@
-package proto
+package test
 
 import (
 	"crypto/aes"
 	"crypto/cipher"
 	"crypto/rand"
-	"crypto/sha1"
 	"crypto/sha256"
-	"encoding/hex"
+	"encoding/json"
 	"fmt"
+	"github.com/Chendemo12/micromq/src/proto"
+	"testing"
 )
-
-// CalcSHA 计算一个字符串hash值的十六进制字符串, 若字符串为空,则直接返回
-func CalcSHA(text string, shaf ...func(stream []byte) []byte) string {
-	if text == "" {
-		return ""
-	}
-
-	var fn func(stream []byte) []byte
-	if len(shaf) > 0 {
-		fn = shaf[0]
-	} else {
-		fn = CalcSHA256
-	}
-
-	hashValue := fn([]byte(text))
-	// 将哈希值转换为16进制字符串输出
-	return hex.EncodeToString(hashValue)
-}
-
-// DefaultCrypto 默认的加解密器，就是不加密
-func DefaultCrypto() Crypto { return dCrypto }
-
-// CalcSHA256 计算字符串的SHA-256值
-func CalcSHA256(stream []byte) []byte {
-	h := sha256.New()
-	h.Write(stream)
-
-	return h.Sum(nil)
-}
-
-// CalcSHA1 计算字符串的SHA-1值
-func CalcSHA1(stream []byte) []byte {
-	h := sha1.New()
-	h.Write(stream)
-
-	return h.Sum(nil)
-}
-
-// Crypto 加解密支持
-type Crypto interface {
-	Encrypt(stream []byte) ([]byte, error) // 加密数据体
-	Decrypt(stream []byte) ([]byte, error) // 解密数据体
-}
-
-// EncryptFunc 加密方法签名
-type EncryptFunc = func(stream []byte) ([]byte, error)
-
-// DecryptFunc 解密方法签名
-type DecryptFunc = func(stream []byte) ([]byte, error)
-
-// NoCrypto 不加密
-type NoCrypto struct{}
-
-func (e NoCrypto) Encrypt(stream []byte) ([]byte, error) {
-	return stream, nil
-}
-
-func (e NoCrypto) Decrypt(stream []byte) ([]byte, error) {
-	return stream, nil
-}
 
 // TokenCrypto 基于Token的加解密器，用于加密注册消息
 // 也可用于加密传输消息
@@ -133,7 +74,7 @@ func (c TokenCrypto) Decrypt(stream []byte) ([]byte, error) {
 		return nil, fmt.Errorf("failed to create AES-GCM cipher: %v", err)
 	}
 
-	// 提取消息头的 Nonce 和加密数据
+	// 提取 Nonce 和加密数据
 	nonceSize := aesGCM.NonceSize()
 	if len(stream) < nonceSize {
 		return nil, fmt.Errorf("invalid ciphertext")
@@ -145,4 +86,38 @@ func (c TokenCrypto) Decrypt(stream []byte) ([]byte, error) {
 	return aesGCM.Open(nil, nonce, ciphertext, nil)
 }
 
-var dCrypto = &NoCrypto{}
+type From struct {
+	Name  string `json:"name"`
+	Age   int    `json:"age"`
+	Token string `json:"token"`
+}
+
+func TestTokenCrypto_Encrypt_Example(t *testing.T) {
+	token := proto.CalcSHA("123456788")
+	form := &From{
+		Name:  "lee",
+		Age:   10,
+		Token: token,
+	}
+	c := TokenCrypto{Token: token}
+	_bytes, err := json.Marshal(form)
+	if err != nil {
+		t.Errorf("form json marshal failed: %s", err.Error())
+	}
+
+	encryptData, err := c.Encrypt(_bytes)
+	if err != nil {
+		t.Errorf("encrypt failed: %s", err.Error())
+	}
+	t.Logf("orignal data: %v", _bytes)
+	t.Logf("encrypt data: %v", encryptData)
+
+	_bytes, err = c.Decrypt(encryptData)
+	if err != nil {
+		t.Errorf("decrypt failed: %s", err.Error())
+	}
+
+	t.Logf("decrypt data: %v", string(_bytes))
+}
+
+func TestTokenCrypto_Decrypt(t *testing.T) {}
