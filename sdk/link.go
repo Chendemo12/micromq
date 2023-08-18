@@ -77,7 +77,7 @@ type Broker struct {
 }
 
 func (b *Broker) handleRegisterMessage(frame *proto.TransferFrame, con transfer.Conn) {
-	err := frame.Unmarshal(b.resp)
+	err := frame.Unmarshal(b.resp, b.conf.Crypto.Decrypt)
 	if err != nil {
 		b.Logger().Warn("register message response unmarshal failed: ", err.Error())
 		_ = b.ReRegister() // retry
@@ -106,6 +106,7 @@ func (b *Broker) distribute(frame *proto.TransferFrame, con transfer.Conn) {
 		b.isRegister.Store(false)
 		b.Logger().Debug(b.linkType, " register expire, sever let re-register")
 		b.event.OnRegisterExpire()
+		time.Sleep(2 * time.Second)
 		_ = b.ReRegister()
 
 	default: // 处理其他消息类型，交由上层处理

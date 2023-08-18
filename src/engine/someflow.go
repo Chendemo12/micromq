@@ -28,12 +28,13 @@ func (e *Engine) registerParser(args *ChainArgs) (stop bool) {
 	err := args.frame.Unmarshal(args.rm, e.tokenCrypto.Decrypt)
 	if err != nil { // 解密或反序列化失败，禁止注册
 		e.Logger().Debug(args.con.Addr()+" register ", err.Error())
-		args.resp.Status = proto.TokenIncorrectStatus
-	} else {
 		// 注册消息帧解析失败，令重新发起注册
 		args.frame.Type = proto.ReRegisterMessageType
 		args.frame.Data = []byte{} // 重新发起注册暂无消息体
-		args.err = fmt.Errorf("register message parse failed, %v, let re-register: %s", err, args.con.Addr())
+		args.err = fmt.Errorf(
+			"register message parse failed, %v, let re-register: %s",
+			err, args.con.Addr(),
+		)
 	}
 	return err != nil
 }

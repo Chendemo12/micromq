@@ -234,7 +234,9 @@ func (e *Engine) handlerFlow(args *ChainArgs, messageType proto.MessageType) (bo
 	}
 
 	// 需要返回响应，构建返回值
-	args.frame.Data, args.err = args.resp.Build()
+	if args.frame.Type == proto.MessageRespType {
+		args.frame.Data, args.err = args.resp.Build()
+	}
 	// TODO: 实现对全部消息的加密
 	if args.err != nil {
 		return false, fmt.Errorf("register response message build failed: %v", args.err)
