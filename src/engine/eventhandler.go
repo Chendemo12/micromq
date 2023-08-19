@@ -26,7 +26,7 @@ type EventHandler interface {
 	// OnProducerRegisterTimeout 当消生产者连接成功后不注册引发的超时事件(异步调用)
 	OnProducerRegisterTimeout(event TimeoutEvent)
 	// OnNotImplementMessageType 当收到一个未实现的消息帧时触发的事件(同步调用)
-	OnNotImplementMessageType(frame *proto.TransferFrame, con transfer.Conn) (bool, error)
+	OnNotImplementMessageType(frame *proto.TransferFrame, con transfer.Conn) error
 	// OnCMConsumed 当一个消费者被消费成功(成功发送给全部消费者)后时触发的事件(同步调用)
 	OnCMConsumed(record *HistoryRecord)
 }
@@ -47,6 +47,6 @@ func (e DefaultEventHandler) OnProducerRegisterTimeout(event TimeoutEvent)  {}
 
 func (e DefaultEventHandler) OnCMConsumed(_ *HistoryRecord) {}
 
-func (e DefaultEventHandler) OnNotImplementMessageType(frame *proto.TransferFrame, con transfer.Conn) (bool, error) {
-	return false, nil
+func (e DefaultEventHandler) OnNotImplementMessageType(frame *proto.TransferFrame, con transfer.Conn) error {
+	return nil
 }

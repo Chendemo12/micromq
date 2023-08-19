@@ -14,42 +14,51 @@ import (
 
 type MessageType byte
 
-// EncryptionAllowed 是否允许加密
+// 如果增加了新的协议代码，都需要在 descriptors 中添加其类型
+const (
+	NotImplementMessageType MessageType = 0
+	RegisterMessageType     MessageType = 1   // 客户端消费者/生产者注册消息类别 c -> s RegisterMessage
+	RegisterMessageRespType MessageType = 2   // s -> c MessageResponse
+	HeartbeatMessageType    MessageType = 4   // c -> s HeartbeatMessage
+	MessageRespType         MessageType = 100 // 生产者消息响应 s -> c MessageResponse
+	PMessageType            MessageType = 101 // 生产者消息类别 c -> s PMessage
+	CMessageType            MessageType = 102 // 消费者消息类别 s -> c CMessage
+)
+
+// EncryptionAllowed 是否允许加密消息体
 func (m MessageType) EncryptionAllowed() bool {
 	switch m {
 	case RegisterMessageRespType:
+		// 为保证客户端在token错误情况下也可以识别注册响应，此消息应禁止加密
 		return false
 	default:
 		return true
 	}
 }
 
-// 如果增加了新的协议代码，都需要在 descriptors 中添加其类型
-const (
-	NotImplementMessageType MessageType = 0
-	RegisterMessageType     MessageType = 1   // 客户端消费者/生产者注册消息类别 c -> s RegisterMessage
-	RegisterMessageRespType MessageType = 2   // s -> c MessageResponse
-	HeartbeatMessageType    MessageType = 4   // c -> s
-	MessageRespType         MessageType = 100 // 生产者消息响应 s -> c MessageResponse
-	PMessageType            MessageType = 101 // 生产者消息类别 c -> s PMessage
-	CMessageType            MessageType = 102 // 消费者消息类别 s -> c CMessage
-)
-
-// HumanMessage 直接返回给调用者的消息定义
-type HumanMessage interface {
-	MessageType() MessageType         // 消息类别
-	MarshalMethod() MarshalMethodType // 消息序列化方法
-	String() string
+// CombinationAllowed 是否允许组合多个消息为一个传输帧 TransferFrame
+func (m MessageType) CombinationAllowed() bool {
+	switch m {
+	case PMessageType, CMessageType:
+		return true
+	case RegisterMessageType, HeartbeatMessageType:
+		// 具有实时性和身份验证，不允许组合
+		return false
+	default:
+		return false
+	}
 }
 
+// Message 消息定义
+// 消息编解码过程中不支持加解密操作, 消息的加解密是对编码后的字节序列进行的操作,与消息定义无关
 type Message interface {
-	HumanMessage                           // 类别和消息解码方法
-	Length() int                           // 编码后的消息序列长度
-	Reset()                                // 重置消息体
-	Parse(stream []byte) error             // 从字节序中解析消息
-	ParseFrom(reader io.Reader) error      // 从流中解析一个消息
-	Build() ([]byte, error)                // 构建消息序列
-	BuildTo(writer io.Writer) (int, error) // 直接将待构建的消息序列写入流内
+	MessageType() MessageType         // 消息类别
+	MarshalMethod() MarshalMethodType // 消息序列化方法
+	String() string                   // 类别和消息解码方法
+	Reset()                           // 重置消息体
+	parse(stream []byte) error        // 从字节序中解析消息
+	parseFrom(reader io.Reader) error // 从流中解析一个消息
+	build() ([]byte, error)           // 构建消息序列, 由于很难预先确定编码后的消息长度,因此暂不实现WriteTo方法
 }
 
 // PMessage 生产者消息数据, 不允许复制
@@ -59,8 +68,6 @@ type Message interface {
 //		|--------------|-----------------|------------|-------------------|--------------|-----------|
 //	len	|      1       | N [1-255] bytes |      1     |  N [1-255] bytes  |       2      |     N     |
 //	   	|--------------|-----------------|------------|-------------------|--------------|-----------|
-//
-// 打包后的总长度不能超过 65526 字节
 type PMessage struct {
 	noCopy NoCopy
 	Topic  []byte // 字符串转字节
@@ -72,7 +79,7 @@ func (m *PMessage) String() string {
 	// "<message:ConsumerMessage> on [ T::DNS_UPDATE | K::2023-07-22T12:23:48.767 ] with 200 bytes of payload"
 	return fmt.Sprintf(
 		"<message:%s> on [ T::%s | K::%s ] with %d bytes of payload",
-		GetDescriptor(m.MessageType()).Text(), m.Topic, m.Key, len(m.Value),
+		descriptors[m.MessageType()].text, m.Topic, m.Key, len(m.Value),
 	)
 }
 
@@ -83,8 +90,8 @@ func (m *PMessage) MarshalMethod() MarshalMethodType {
 }
 
 // Length 获取编码后的消息序列长度
-func (m *PMessage) Length() int {
-	return len(m.Topic) + len(m.Key) + len(m.Value)
+func (m *PMessage) length() int {
+	return len(m.Topic) + len(m.Key) + len(m.Value) + 4
 }
 
 func (m *PMessage) Reset() {
@@ -93,11 +100,11 @@ func (m *PMessage) Reset() {
 	m.Value = nil
 }
 
-func (m *PMessage) Parse(stream []byte) error {
-	return m.ParseFrom(bytes.NewReader(stream))
+func (m *PMessage) parse(stream []byte) error {
+	return m.parseFrom(bytes.NewReader(stream))
 }
 
-func (m *PMessage) ParseFrom(reader io.Reader) error {
+func (m *PMessage) parseFrom(reader io.Reader) error {
 	// 		TopicLength byte
 	//		Topic       []byte
 	//		KeyLength   byte
@@ -147,8 +154,8 @@ func (m *PMessage) ParseFrom(reader io.Reader) error {
 	return nil
 }
 
-func (m *PMessage) Build() ([]byte, error) {
-	slice := make([]byte, 0, m.Length()) // 分配最大长度
+func (m *PMessage) build() ([]byte, error) {
+	slice := make([]byte, 0, m.length()) // 分配最大长度
 	vl := make([]byte, 2)
 	binary.BigEndian.PutUint16(vl, uint16(len(m.Value)))
 
@@ -168,11 +175,6 @@ func (m *PMessage) Build() ([]byte, error) {
 	return slice, nil
 }
 
-func (m *PMessage) BuildTo(writer io.Writer) (int, error) {
-	_bytes, _ := m.Build()
-	return writer.Write(_bytes)
-}
-
 // ========================================== 消费者消息记录协议定义 ==========================================
 
 // CMessage 消费者消息记录, 不允许复制
@@ -182,8 +184,6 @@ func (m *PMessage) BuildTo(writer io.Writer) (int, error) {
 //		|--------------|-----------------|------------|-------------------|--------------|-----------|------------|-----------------|
 //	len	|      1       | N [1-255] bytes |      1     |  N [1-255] bytes  |       2      |     N     |      8     |         8       |
 //	   	|--------------|-----------------|------------|-------------------|--------------|-----------|------------|-----------------|
-//
-// 打包后的总长度不能超过 65526 字节
 type CMessage struct {
 	Offset      []byte // uint64
 	ProductTime []byte // time.Time.Unix() 消息创建的Unix时间戳
@@ -194,7 +194,7 @@ func (m *CMessage) String() string {
 	// "<message:ConsumerMessage> on [ T::DNS_UPDATE | K::2023-07-22T12:23:48.767 | O::2342 ] with 200 bytes of payload"
 	return fmt.Sprintf(
 		"<message:%s> on [ T::%s | K::%s | O::%d ] with %d bytes of payload",
-		GetDescriptor(m.MessageType()).Text(), m.PM.Topic, m.PM.Key, m.Offset, len(m.PM.Value),
+		descriptors[m.MessageType()].text, m.PM.Topic, m.PM.Key, m.Offset, len(m.PM.Value),
 	)
 }
 
@@ -204,8 +204,6 @@ func (m *CMessage) MarshalMethod() MarshalMethodType {
 	return BinaryMarshalMethod
 }
 
-func (m *CMessage) Length() int { return 16 + m.PM.Length() }
-
 func (m *CMessage) Reset() {
 	m.Offset = make([]byte, 8)
 	m.ProductTime = make([]byte, 8)
@@ -214,11 +212,11 @@ func (m *CMessage) Reset() {
 	}
 }
 
-func (m *CMessage) Parse(stream []byte) error {
-	return m.ParseFrom(bytes.NewReader(stream))
+func (m *CMessage) parse(stream []byte) error {
+	return m.parseFrom(bytes.NewReader(stream))
 }
 
-func (m *CMessage) ParseFrom(reader io.Reader) error {
+func (m *CMessage) parseFrom(reader io.Reader) error {
 	// 		TopicLength byte
 	//		Topic       []byte
 	//		KeyLength   byte
@@ -228,7 +226,7 @@ func (m *CMessage) ParseFrom(reader io.Reader) error {
 	//		Offset      uint64
 	//		ProductTime int64 // time.Time.Unix()
 
-	err := m.PM.ParseFrom(reader)
+	err := m.PM.parseFrom(reader)
 	if err != nil {
 		return err
 	}
@@ -246,8 +244,8 @@ func (m *CMessage) ParseFrom(reader io.Reader) error {
 	return nil
 }
 
-func (m *CMessage) Build() ([]byte, error) {
-	slice := make([]byte, 0, m.Length()) // 分配最大长度
+func (m *CMessage) build() ([]byte, error) {
+	slice := make([]byte, 0, 16+m.PM.length()) // 分配最大长度
 
 	//		TopicLength byte
 	//		Topic       []byte
@@ -257,17 +255,12 @@ func (m *CMessage) Build() ([]byte, error) {
 	//		Value       []byte
 	//		Offset      uint64
 	//		ProductTime int64 // time.Time.Unix()
-	_bytes, _ := m.PM.Build()
+	_bytes, _ := m.PM.build()
 	slice = append(slice, _bytes...)
 	slice = append(slice, m.Offset...)
 	slice = append(slice, m.ProductTime...)
 
 	return slice, nil
-}
-
-func (m *CMessage) BuildTo(writer io.Writer) (int, error) {
-	_bytes, _ := m.Build()
-	return writer.Write(_bytes)
 }
 
 // ========================================== 消息注册协议定义 ==========================================
@@ -283,7 +276,7 @@ type RegisterMessage struct {
 func (m *RegisterMessage) String() string {
 	return fmt.Sprintf(
 		"<message:%s> %s with %s",
-		GetDescriptor(m.MessageType()).Text(), m.Type, m.Ack,
+		descriptors[m.MessageType()].text, m.Type, m.Ack,
 	)
 }
 
@@ -293,25 +286,19 @@ func (m *RegisterMessage) MarshalMethod() MarshalMethodType {
 	return JsonMarshalMethod
 }
 
-func (m *RegisterMessage) Length() int { return 0 }
-
 func (m *RegisterMessage) Reset() {}
 
-func (m *RegisterMessage) Parse(stream []byte) error {
-	return JsonMessageParse(stream, m)
+func (m *RegisterMessage) parse(stream []byte) error {
+	return helper.JsonUnmarshal(stream, m)
 }
 
 // ParseFrom 从reader解析消息，此操作不够优化，应考虑使用 Parse 方法
-func (m *RegisterMessage) ParseFrom(reader io.Reader) error {
+func (m *RegisterMessage) parseFrom(reader io.Reader) error {
 	return JsonMessageParseFrom(reader, m)
 }
 
-func (m *RegisterMessage) Build() ([]byte, error) {
-	return JsonMessageBuild(m)
-}
-
-func (m *RegisterMessage) BuildTo(writer io.Writer) (int, error) {
-	return JsonMessageBuildTo(writer, m)
+func (m *RegisterMessage) build() ([]byte, error) {
+	return helper.JsonMarshal(m)
 }
 
 // ========================================== 协议定义 End ==========================================
@@ -322,63 +309,35 @@ type HeartbeatMessage struct {
 	CreatedAt int64    `json:"created_at" description:"客户端创建时间戳"`
 }
 
-func (h *HeartbeatMessage) MessageType() MessageType {
+func (m *HeartbeatMessage) MessageType() MessageType {
 	return HeartbeatMessageType
 }
 
-func (h *HeartbeatMessage) MarshalMethod() MarshalMethodType {
+func (m *HeartbeatMessage) MarshalMethod() MarshalMethodType {
 	return JsonMarshalMethod
 }
 
-func (h *HeartbeatMessage) String() string {
+func (m *HeartbeatMessage) String() string {
 	return fmt.Sprintf(
-		"<message:%s> from %s", GetDescriptor(h.MessageType()).Text(), h.Type,
+		"<message:%s> from %s", descriptors[m.MessageType()].text, m.Type,
 	)
 }
 
-func (h *HeartbeatMessage) Length() int { return 0 }
+func (m *HeartbeatMessage) Reset() {}
 
-func (h *HeartbeatMessage) Reset() {}
-
-func (h *HeartbeatMessage) Parse(stream []byte) error {
-	return JsonMessageParse(stream, h)
+func (m *HeartbeatMessage) parse(stream []byte) error {
+	return helper.JsonUnmarshal(stream, m)
 }
 
-func (h *HeartbeatMessage) ParseFrom(reader io.Reader) error {
-	return JsonMessageParseFrom(reader, h)
+func (m *HeartbeatMessage) parseFrom(reader io.Reader) error {
+	return JsonMessageParseFrom(reader, m)
 }
 
-func (h *HeartbeatMessage) Build() ([]byte, error) {
-	return JsonMessageBuild(h)
-}
-
-func (h *HeartbeatMessage) BuildTo(writer io.Writer) (int, error) {
-	return JsonMessageBuildTo(writer, h)
+func (m *HeartbeatMessage) build() ([]byte, error) {
+	return helper.JsonMarshal(m)
 }
 
 // ========================================== 通用的消息响应协议定义 ==========================================
-
-type MessageResponseStatus string
-
-const (
-	AcceptedStatus       MessageResponseStatus = "0" // 已接受，正常状态
-	RefusedStatus        MessageResponseStatus = "1"
-	TokenIncorrectStatus MessageResponseStatus = "10" // 密钥不正确
-	ReRegisterStatus     MessageResponseStatus = "11" // 令客户端重新发起注册流程, 无消息体
-)
-
-func GetMessageResponseStatusText(status MessageResponseStatus) string {
-	switch status {
-	case AcceptedStatus:
-		return "Accepted"
-	case TokenIncorrectStatus:
-		return "TokenIncorrect"
-	case ReRegisterStatus:
-		return "Let Re-Register"
-	}
-
-	return "Refused"
-}
 
 // MessageResponse 消息响应， P和C通用
 type MessageResponse struct {
@@ -396,7 +355,7 @@ type MessageResponse struct {
 func (m *MessageResponse) String() string {
 	return fmt.Sprintf(
 		"<message:%s> with status: %s",
-		GetDescriptor(m.MessageType()).Text(), GetMessageResponseStatusText(m.Status),
+		descriptors[m.MessageType()].text, GetMessageResponseStatusText(m.Status),
 	)
 }
 
@@ -412,8 +371,6 @@ func (m *MessageResponse) MarshalMethod() MarshalMethodType {
 	return JsonMarshalMethod
 }
 
-func (m *MessageResponse) Length() int { return 0 }
-
 func (m *MessageResponse) Reset() {
 	m.Status = RefusedStatus
 	m.Offset = 0
@@ -422,12 +379,12 @@ func (m *MessageResponse) Reset() {
 	m.Keepalive = 0
 }
 
-func (m *MessageResponse) Parse(stream []byte) error {
+func (m *MessageResponse) parse(stream []byte) error {
 	return helper.JsonUnmarshal(stream, m)
 }
 
 // ParseFrom 从reader解析消息，此操作不够优化，应考虑使用 Parse 方法
-func (m *MessageResponse) ParseFrom(reader io.Reader) error {
+func (m *MessageResponse) parseFrom(reader io.Reader) error {
 	_bytes := make([]byte, 65526)
 	n, err := reader.Read(_bytes)
 	if err != nil && !errors.Is(err, io.EOF) {
@@ -437,12 +394,8 @@ func (m *MessageResponse) ParseFrom(reader io.Reader) error {
 	return helper.JsonUnmarshal(_bytes[:n], m)
 }
 
-func (m *MessageResponse) Build() ([]byte, error) {
-	return JsonMessageBuild(m)
-}
-
-func (m *MessageResponse) BuildTo(writer io.Writer) (int, error) {
-	return JsonMessageBuildTo(writer, m)
+func (m *MessageResponse) build() ([]byte, error) {
+	return helper.JsonMarshal(m)
 }
 
 func (m *MessageResponse) Accepted() bool { return m.Status == AcceptedStatus }
@@ -453,26 +406,21 @@ type NotImplementMessage struct{}
 
 func (m NotImplementMessage) String() string {
 	return fmt.Sprintf(
-		"<message:%s> not implemented", GetDescriptor(m.MessageType()).Text())
+		"<message:%s> not implemented", descriptors[m.MessageType()].text)
 }
 
 func (m NotImplementMessage) MessageType() MessageType         { return NotImplementMessageType }
 func (m NotImplementMessage) MarshalMethod() MarshalMethodType { return BinaryMarshalMethod }
-func (m NotImplementMessage) Length() int                      { return 0 }
 func (m NotImplementMessage) Reset()                           {}
 
-func (m NotImplementMessage) Parse(_ []byte) error {
+func (m NotImplementMessage) parse(_ []byte) error {
 	return ErrMethodNotImplemented
 }
 
-func (m NotImplementMessage) ParseFrom(_ io.Reader) error {
+func (m NotImplementMessage) parseFrom(_ io.Reader) error {
 	return ErrMethodNotImplemented
 }
 
-func (m NotImplementMessage) Build() ([]byte, error) {
+func (m NotImplementMessage) build() ([]byte, error) {
 	return nil, ErrMethodNotImplemented
-}
-
-func (m NotImplementMessage) BuildTo(_ io.Writer) (int, error) {
-	return 0, ErrMethodNotImplemented
 }

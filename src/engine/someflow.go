@@ -1,20 +1,14 @@
 package engine
 
 import (
-	"bytes"
 	"fmt"
 	"github.com/Chendemo12/micromq/src/proto"
 )
 
-//
 // ================================= register =================================
-//
 
 func (e *Engine) registerParser(args *ChainArgs) (stop bool) {
 	args.rm = &proto.RegisterMessage{}
-
-	// 无论注册成功与否都需要构建返回值
-	args.frame.Type = proto.RegisterMessageRespType
 	args.resp.TickerInterval = int(e.ProducerSendInterval())
 	args.resp.Keepalive = e.HeartbeatInterval()
 
@@ -22,9 +16,11 @@ func (e *Engine) registerParser(args *ChainArgs) (stop bool) {
 	err := args.frame.Unmarshal(args.rm, e.tokenCrypto.Decrypt)
 	stop = err != nil
 
+	// 应先 Unmarshal 再就地修改 frameType
+	args.frame.SetType(proto.RegisterMessageRespType)
 	if err != nil { // 解密或反序列化失败
 		args.resp.Status = proto.ReRegisterStatus
-		e.Logger().Info(args.con.Addr(), " register message decrypt failed", err.Error())
+		e.Logger().Info(args.con.Addr(), " register message decrypt failed ", err.Error())
 	} else {
 		e.Logger().Info(args.con.Addr(), " register message decrypt successfully.")
 	}
@@ -114,21 +110,18 @@ func (e *Engine) registerCallback(args *ChainArgs) (stop bool) {
 	return
 }
 
-//
 // ============================= producer message =============================
-//
 
 // 处理生产者消息帧，此处需要判断生产者是否已注册
 func (e *Engine) producerNotFound(args *ChainArgs) (stop bool) {
-	// 可以不返回响应给客户端，但是对象必须初始化了
-	args.frame.Type = proto.MessageRespType
-
 	producer, exist := e.QueryProducer(args.con.Addr())
+
 	if !exist {
-		stop = true
 		// 返回令客户端重新注册命令
 		args.resp.Status = proto.ReRegisterStatus
+		args.frame.SetType(proto.MessageRespType)
 		e.Logger().Debug("found unregister producer, let re-register: ", args.con.Addr())
+		stop = true
 	} else {
 		args.producer = producer
 		args.resp.Status = proto.AcceptedStatus
@@ -140,24 +133,16 @@ func (e *Engine) producerNotFound(args *ChainArgs) (stop bool) {
 func (e *Engine) pmParser(args *ChainArgs) (stop bool) {
 	// 存在多个消息封装为一个帧
 	args.pms = make([]*proto.PMessage, 0)
-	stream := bytes.NewReader(args.frame.Data)
+	err := proto.FrameSplit[*proto.PMessage](args.frame, &args.pms, e.Crypto().Decrypt)
+	stop = err != nil
 
-	// 循环解析生产者消息
-	args.err = nil
-	for args.err == nil && stream.Len() > 0 {
-		pm := cpmp.GetPM()
-		args.err = pm.ParseFrom(stream)
-		if args.err == nil {
-			args.pms = append(args.pms, pm)
-		} else {
-			cpmp.PutPM(pm)
-		}
+	if err != nil {
+		args.DoNotReplyClient(err)
 	}
 
-	if len(args.pms) < 1 {
-		args.err = ErrPMNotFound
+	if err != nil || len(args.pms) < 1 {
 		// 无需向客户端返回解析失败响应，客户端在收不到FIN时会自行处理
-		return true
+		args.DoNotReplyClient(ErrPMNotFound)
 	}
 
 	return
@@ -174,15 +159,14 @@ func (e *Engine) pmPublisher(args *ChainArgs) (stop bool) {
 
 	if !args.producer.NeedConfirm() {
 		// 不需要返回确认消息给客户端
+		args.DoNotReplyClient(ErrNoNeedToReply)
 		stop = true
 	}
 
 	return
 }
 
-//
 // ============================= heartbeat message =============================
-//
 
 func (e *Engine) receiveHeartbeat(args *ChainArgs) (stop bool) {
 	e.monitor.OnClientHeartbeat(args.con.Addr())

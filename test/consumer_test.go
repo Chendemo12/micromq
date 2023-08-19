@@ -54,13 +54,13 @@ func (c *DnsConsumer) Start() error {
 	return nil
 }
 
-func TestSdkConsumer(t *testing.T) {
+func TestSdkConsumer_Start(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 1*time.Minute)
 
 	consumer := &DnsConsumer{
 		Host:   "127.0.0.1",
 		Port:   "7270",
-		Token:  "123456789",
+		Token:  "123456788",
 		topics: []string{"DNS_REPORT", "DNS_UPDATE"},
 		ctx:    ctx,
 		t:      t,

@@ -1,8 +1,6 @@
 package sdk
 
 import (
-	"bytes"
-	"fmt"
 	"github.com/Chendemo12/fastapi-tool/helper"
 	"github.com/Chendemo12/fastapi-tool/logger"
 	"github.com/Chendemo12/functools/python"
@@ -25,10 +23,11 @@ func (c *CHandler) OnClosed()         {}
 func (c *CHandler) OnRegistered()     {}
 func (c *CHandler) OnRegisterExpire() {}
 
-func (c *CHandler) OnRegisterFailed(status proto.MessageResponseStatus) {}
-func (c *CHandler) Handler(record *ConsumerMessage)                     {}
+func (c *CHandler) OnRegisterFailed(_ proto.MessageResponseStatus) {}
 
-func (c *CHandler) OnNotImplementMessageType(frame *proto.TransferFrame, con transfer.Conn) {}
+func (c *CHandler) Handler(_ *ConsumerMessage) {}
+
+func (c *CHandler) OnNotImplementMessageType(_ *proto.TransferFrame, _ transfer.Conn) {}
 
 // Consumer 消费者
 type Consumer struct {
@@ -37,37 +36,20 @@ type Consumer struct {
 	mu      *sync.Mutex
 }
 
-// 将消息帧转换为消费者消息，中间经过了一个协议转换
-func (client *Consumer) toCMessage(frame *proto.TransferFrame) ([]*ConsumerMessage, error) {
-	var err error
-
-	cms := make([]*ConsumerMessage, 0)
-	reader := bytes.NewReader(frame.Data)
-
-	for err == nil && reader.Len() > 0 {
-		serverCM := emPool.GetCM()
-		serverCM.PM = emPool.GetPM()
-		err = serverCM.ParseFrom(reader)
-
-		if err == nil {
-			cm := hmPool.GetCM()
-			cm.ParseFromCMessage(serverCM)
-			cms = append(cms, cm)
-		}
-
-		emPool.PutCM(serverCM)
-	}
-
-	return cms, err
-}
-
 func (client *Consumer) handleMessage(frame *proto.TransferFrame) {
-	// 转换消息格式
-	cms, err := client.toCMessage(frame)
+	// 将消息帧转换为消费者消息，中间经过了一个协议转换
+	serverCMs := make([]*proto.CMessage, 0)
+	err := proto.FrameSplit[*proto.CMessage](frame, &serverCMs, client.Crypto().Decrypt)
 	if err != nil {
-		// 记录日志
-		client.Logger().Warn(fmt.Sprintf("%s parse failed: %s", frame, err))
+		// 消息提取失败
+		client.Logger().Warn(frame.String(), " parse failed: ", err.Error())
 		return
+	}
+	// 转换消息格式
+	cms := make([]*ConsumerMessage, len(serverCMs))
+	for i := 0; i < len(serverCMs); i++ {
+		cms[i] = hmPool.GetCM()
+		cms[i].ParseFromCMessage(serverCMs[i])
 	}
 
 	for _, msg := range cms {
@@ -86,7 +68,7 @@ func (client *Consumer) handleMessage(frame *proto.TransferFrame) {
 
 func (client *Consumer) distribute(frame *proto.TransferFrame, con transfer.Conn) {
 
-	switch frame.Type {
+	switch frame.Type() {
 	case proto.CMessageType:
 		client.handleMessage(frame)
 

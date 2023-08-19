@@ -90,15 +90,16 @@ func (b *Broker) handleRegisterMessage(frame *proto.TransferFrame, con transfer.
 	// 处理注册响应, 目前由服务器保证重新注册等流程
 	switch b.resp.Status {
 	case proto.AcceptedStatus:
-		b.Logger().Info(b.linkType + " register successfully")
 		b.isRegister.Store(true)
+		b.Logger().Info(b.linkType + " register successfully")
 		b.event.OnRegistered()
 	case proto.ReRegisterStatus:
+		b.isRegister.Store(false)
 		b.Logger().Warn(b.linkType+" register failed: ", proto.GetMessageResponseStatusText(b.resp.Status))
 		_ = b.ReRegister(true)
 	default:
-		b.Logger().Warn(b.linkType+" register failed: ", proto.GetMessageResponseStatusText(b.resp.Status))
 		b.isRegister.Store(false)
+		b.Logger().Warn(b.linkType+" register failed: ", proto.GetMessageResponseStatusText(b.resp.Status))
 		b.event.OnRegisterFailed(b.resp.Status)
 	}
 }
@@ -121,7 +122,7 @@ func (b *Broker) handleMessageResponse(frame *proto.TransferFrame, con transfer.
 }
 
 func (b *Broker) distribute(frame *proto.TransferFrame, con transfer.Conn) {
-	switch frame.Type {
+	switch frame.Type() {
 
 	case proto.RegisterMessageRespType: // 处理注册响应
 		b.handleRegisterMessage(frame, con)
@@ -178,26 +179,25 @@ func (b *Broker) HeartbeatTask() {
 		case <-b.ctx.Done():
 			return
 		default:
-			// 此操作以支持实时修改发送周期
+			// 此操作以支持实时修改心跳周期
 			time.Sleep(b.HeartbeatInterval())
 			if !b.StatusOK() {
 				continue
 			}
+
 			// 发送心跳
 			m := &proto.HeartbeatMessage{
 				Type: b.linkType, CreatedAt: time.Now().Unix(),
 			}
+
 			frame := framePool.Get()
 			// 加密消息帧
-			_bytes, err := frame.BuildFrom(m, b.conf.Crypto.Encrypt)
-			// release
-			framePool.Put(frame)
-
-			if err != nil {
-				continue
+			err := frame.BuildFrom(m, b.conf.Crypto.Encrypt)
+			if err == nil {
+				_, _ = frame.WriteTo(b.link)
+				_ = b.link.Drain()
 			}
-			_, _ = b.link.Write(_bytes)
-			_ = b.link.Drain()
+			framePool.Put(frame) // release
 		}
 	}
 }
@@ -210,12 +210,12 @@ func (b *Broker) ReRegister(delay bool) error {
 	frame := framePool.Get()
 	defer framePool.Put(frame)
 
-	_bytes, err := frame.BuildFrom(b.reg, b.tokenCrypto.Encrypt)
+	err := frame.BuildFrom(b.reg, b.tokenCrypto.Encrypt)
 	if err != nil {
 		return err
 	}
-	_, _ = b.link.Write(_bytes)
 
+	_, _ = frame.WriteTo(b.link)
 	return b.link.Drain()
 }
 
@@ -303,7 +303,6 @@ func (b *Broker) Handler(r *tcp.Remote) error {
 				b.Logger().Warn(fmt.Errorf("%s parse frame failed: %v", b.linkType, err))
 			}
 		} else {
-			// TODO: 实现对全部消息的解密和加密
 			b.distribute(f, client)
 		}
 	}(frame, r, err)

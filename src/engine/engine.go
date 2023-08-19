@@ -2,6 +2,7 @@ package engine
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"github.com/Chendemo12/fastapi-tool/cronjob"
 	"github.com/Chendemo12/fastapi-tool/logger"
@@ -77,7 +78,7 @@ func (e *Engine) beforeServe() *Engine {
 		// 初始化为未实现
 		e.hooks[i] = &Hook{
 			Type:    proto.NotImplementMessageType,
-			Handler: e.defaultHookHandler,
+			Handler: e.flowToHookHandler,
 		}
 		// 初始化一个空流程链
 		e.flows[i] = make([]FlowHandler, 0)
@@ -209,63 +210,54 @@ func (e *Engine) findConsumerSlot() int {
 }
 
 // 将一系列处理过程组合成一条链
-func (e *Engine) flowToHandler(args *ChainArgs, messageType proto.MessageType) (bool, error) {
+func (e *Engine) flowToHookHandler(frame *proto.TransferFrame, con transfer.Conn) error {
+	args := e.ePool.getArgs(frame, con)
 	defer e.ePool.putArgs(args)
 
-	for _, link := range e.flows[messageType] {
+	for _, link := range e.flows[frame.Type()] {
 		if link(args) { // 此环节决定终止后续流程
 			break
 		}
 	}
 
+	// 不需要回复响应, 不再构建帧消息
+	if !args.ReplyClient() {
+		return args.DoNotReplyClientReason()
+	}
+
 	// 构建返回值
-	args.frame.Data, args.err = args.resp.Build()
-	if args.err != nil {
-		return false, fmt.Errorf("register response message build failed: %v", args.err)
-	}
-	// 实现对全部消息的加密
-	if args.frame.Type.EncryptionAllowed() {
-		args.frame.Data, args.err = e.Crypto().Encrypt(args.frame.Data)
-	}
-
-	return true, args.err
-}
-
-func (e *Engine) defaultHookHandler(frame *proto.TransferFrame, con transfer.Conn) (bool, error) {
-	args := e.ePool.getArgs(frame, con)
-
-	return e.flowToHandler(args, frame.Type)
+	return frame.BuildFrom(args.resp, e.Crypto().Encrypt)
 }
 
 // 分发消息
 func (e *Engine) distribute(frame *proto.TransferFrame, con transfer.Conn) {
 	var err error
-	var needResp bool
 
-	if proto.GetDescriptor(frame.Type).MessageType() != proto.NotImplementMessageType {
+	if proto.GetDescriptor(frame.Type()).MessageType() != proto.NotImplementMessageType {
 		// 协议已实现
-		needResp, err = e.hooks[frame.Type].Handler(frame, con)
+		err = e.hooks[frame.Type()].Handler(frame, con)
 	} else {
 		// 此协议未注册, 通过事件回调处理
-		needResp, err = e.EventHandler().OnNotImplementMessageType(frame, con)
+		err = e.EventHandler().OnNotImplementMessageType(frame, con)
 	}
 
 	// 业务处理错误或不需要回写返回值
-	if err != nil || !needResp {
-		e.Logger().Warn(fmt.Sprintf(
-			"message: %s processing complete, response: %t, err: %v",
-			proto.GetDescriptor(frame.Type).Text(), needResp, err,
-		))
+	if err != nil {
+		if !errors.Is(err, ErrNoNeedToReply) {
+			e.Logger().Warn(fmt.Sprintf(
+				"<frame:%s> processing complete, but err: %v", frame.MessageText(), err,
+			))
+		}
+
 		return
 	}
 
 	// 重新构建并写入消息帧
-	_, _ = con.Write(frame.Build())
+	_, err = frame.WriteTo(con)
 	err = con.Drain()
 	if err != nil {
 		e.Logger().Warn(fmt.Sprintf(
-			"send <message:%d> to '%s' failed: %s",
-			frame.Type, con.Addr(), err,
+			"send <message:%d> to '%s' failed: %s", frame.Type(), con.Addr(), err,
 		))
 	}
 }
@@ -289,7 +281,7 @@ func (e *EPool) getArgs(frame *proto.TransferFrame, con transfer.Conn) *ChainArg
 	args.frame = frame
 	args.con = con
 
-	// MessageResponse
+	// 响应可以不写给客户端，但是对象必须初始化
 	resp := e.mResp.Get().(*proto.MessageResponse)
 	resp.Status = proto.RefusedStatus
 	resp.Offset = 0

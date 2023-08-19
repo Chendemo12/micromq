@@ -75,36 +75,36 @@ func (client *Producer) sendToServer() {
 
 		// TODO: 定时批量发送消息
 		case pm := <-client.queue:
+			frame := framePool.Get()
 			serverPM := &proto.PMessage{
 				Topic: helper.S2B(pm.Topic),
 				Key:   helper.S2B(pm.Key),
 				Value: pm.Value,
 			}
 
-			frame := framePool.Get()
-			_bytes, err := frame.BuildFrom(serverPM, client.Crypto().Encrypt)
+			//err := proto.FrameCombine[*proto.PMessage](
+			//	frame, []*proto.PMessage{serverPM}, client.Crypto().Encrypt,
+			//)
 
-			// release
-			framePool.Put(frame)
-			hmPool.PutPM(pm)
-
-			if err != nil { // 可能性很小
-				continue
+			// 加密消息帧
+			err := frame.BuildFrom(serverPM, client.Crypto().Encrypt)
+			if err == nil {
+				_, _ = frame.WriteTo(client.broker.link)
+				go func() { // 异步发送消息
+					err2 := client.broker.link.Drain()
+					if err2 != nil {
+						client.Logger().Warn("send message to server failed: ", err2)
+					}
+				}()
 			}
-
-			go func() { // 异步发送消息
-				_, err2 := client.broker.link.Write(_bytes)
-				err2 = client.broker.link.Drain()
-				if err2 != nil {
-					client.Logger().Warn("send message to server failed: ", err2)
-				}
-			}()
+			framePool.Put(frame) // release
+			hmPool.PutPM(pm)
 		}
 	}
 }
 
 func (client *Producer) distribute(frame *proto.TransferFrame, r transfer.Conn) {
-	switch frame.Type {
+	switch frame.Type() {
 
 	default: // 未识别的帧类型
 		client.handler.OnNotImplementMessageType(frame, r)

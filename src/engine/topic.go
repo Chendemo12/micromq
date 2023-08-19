@@ -11,12 +11,12 @@ var cpmp = proto.NewCPMPool()
 var framePool = proto.NewFramePool()
 
 type HistoryRecord struct {
-	Topic       []byte            // 历史记录所属的topic
-	Offset      []byte            // 历史记录所属的偏移量
-	Time        int64             // 历史记录创建时间戳,而非CM被创建的事件戳
-	MessageType proto.MessageType // CM协议类型,以此来反序列化
-	Stream      []byte            // CM序列化字节流
-	cm          *proto.CMessage   // nil
+	Topic       []byte               // 历史记录所属的topic
+	MessageType proto.MessageType    // CM协议类型,以此来反序列化
+	Offset      []byte               // 历史记录所属的偏移量
+	Frame       *proto.TransferFrame //
+	Stream      []byte               // 保留消息帧的二进制序列
+	Time        int64                // 历史记录创建时间戳,而非CM被创建的事件戳
 }
 
 type Topic struct {
@@ -39,22 +39,15 @@ func (t *Topic) refreshOffset() uint64 {
 
 // 当一个消息发送给所有消费者后需要处理的事件
 func (t *Topic) onMessageConsumed(record *HistoryRecord) {
-	cm := record.cm
-	record.cm = nil
+	// 缓存帧序列数据
+	record.Stream = record.Frame.Build()
+	framePool.Put(record.Frame)
+	record.Frame = nil
+
 	// 添加到历史记录
 	t.historyRecords.Append(record)
 
 	t.onConsumed(record)
-
-	// cm:
-	//	1. Topic.Publisher 创建, 并绑定pm
-	//	2. Publisher 加入到 Topic.queue
-	//	3. Topic.consume 从 Topic.queue 中消费pm 并绑定到 record
-	//	4. Topic.consume -> Topic.sendAndWait -> 此
-	// 	5. CPMPool 释放CM时会同时释放PM
-	//
-
-	cpmp.PutCM(cm) // release
 }
 
 // 发送并等待所有消费者收到消息
@@ -69,7 +62,7 @@ func (t *Topic) sendAndWait(record *HistoryRecord) {
 				defer wg.Done()
 
 				c.mu.Lock() // 保证线程安全
-				_, _ = c.Conn.Write(record.Stream)
+				_, _ = record.Frame.WriteTo(c.Conn)
 				_ = c.Conn.Drain()
 				c.mu.Unlock()
 			}()
@@ -82,29 +75,33 @@ func (t *Topic) sendAndWait(record *HistoryRecord) {
 }
 
 // 向消费者发送消息帧
-// TODO: 实现多个消息压缩为帧
 func (t *Topic) consume() {
 	t.historyRecords = proto.NewQueue(t.HistorySize)
 
 	for cm := range t.queue {
 		frame := framePool.Get()
-		_bytes, err := frame.BuildFrom(cm)
-		framePool.Put(frame)
+		// TODO: 实现多个消息压缩为帧
+		//err := proto.FrameCombine[*proto.CMessage](frame, []*proto.CMessage{cm})
+		err := frame.BuildFrom(cm) // TODO: 加密
+		cpmp.PutCM(cm)
 
-		if err != nil {
-			cpmp.PutCM(cm)
+		if err != nil { // 消息构建失败, 增加日志记录
 			continue
 		}
 
 		record := &HistoryRecord{
 			Topic:       t.Name,
 			Offset:      cm.Offset,
-			Time:        0,
 			MessageType: cm.MessageType(),
-			Stream:      _bytes,
-			cm:          cm,
+			Frame:       frame,
+			Time:        time.Now().Unix(),
 		}
 
+		// cm:
+		//	1. Topic.Publisher 创建, 并绑定pm
+		//	2. Publisher 加入到 Topic.queue
+		//	3. Topic.consume 从 Topic.queue 中消费 cm
+		//	4. 此步骤构建cm二进制序列到frame上并释放CM时会同时释放PM
 		go t.sendAndWait(record)
 	}
 }

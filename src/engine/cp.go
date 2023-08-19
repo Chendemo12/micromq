@@ -53,7 +53,7 @@ func (c *Consumer) Send(msg proto.Message) error {
 	frame := framePool.Get()
 	defer framePool.Put(frame)
 
-	_bytes, err := frame.BuildFrom(msg)
+	err := frame.BuildFrom(msg)
 	if err != nil {
 		return err
 	}
@@ -61,7 +61,7 @@ func (c *Consumer) Send(msg proto.Message) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	_, err = c.Conn.Write(_bytes)
+	_, err = frame.WriteTo(c.Conn)
 	if err != nil {
 		return err
 	}

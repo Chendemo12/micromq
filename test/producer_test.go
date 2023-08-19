@@ -14,7 +14,7 @@ type DnsForm struct {
 	IP     string `json:"ip"`
 }
 
-func TestSdkProducer(t *testing.T) {
+func TestSdkProducer_Start(t *testing.T) {
 	ticker := time.NewTicker(1000 * time.Millisecond)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
 

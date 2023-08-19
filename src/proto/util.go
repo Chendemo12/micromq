@@ -98,26 +98,7 @@ func (q *Queue) PopLeft() any {
 
 // ----------------------------------------------------------------------------
 
-func JsonMessageBuild(m Message) ([]byte, error) {
-	if m.MarshalMethod() == JsonMarshalMethod {
-		return helper.JsonMarshal(m)
-	}
-	return m.Build()
-}
-
-func JsonMessageBuildTo(writer io.Writer, m Message) (int, error) {
-	_bytes, err := m.Build()
-	if err != nil {
-		return 0, err
-	}
-	return writer.Write(_bytes)
-}
-
-func JsonMessageParse(stream []byte, m Message) error {
-	return helper.JsonUnmarshal(stream, m)
-}
-
-// JsonMessageParseFrom 从reader解析消息，此操作不够优化，应考虑使用 Parse 方法
+// JsonMessageParseFrom 从reader解析消息，此操作不够优化，应考虑使用 parse 方法
 func JsonMessageParseFrom(reader io.Reader, m Message) error {
 	_bytes := make([]byte, 65526)
 	n, err := reader.Read(_bytes)
