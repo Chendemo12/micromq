@@ -25,7 +25,7 @@ type Config struct {
 	topicHistorySize int             // topic 历史缓存大小
 }
 
-func (c *Config) Clean() *Config {
+func (c *Config) clean() *Config {
 	if !(c.BufferSize > 0 && c.BufferSize <= 5000) {
 		c.BufferSize = 100
 	}
@@ -56,18 +56,19 @@ type Engine struct {
 	conf                 *Config
 	producers            []*Producer // 生产者
 	consumers            []*Consumer // 消费者
-	topics               *sync.Map
 	transfer             transfer.Transfer
-	producerSendInterval time.Duration // 生产者发送消息的时间间隔 = 500ms
-	cpLock               *sync.RWMutex // consumer producer add/remove lock
-	argsPool             *sync.Pool
-	scheduler            *cronjob.Scheduler
+	topics               *sync.Map
 	monitor              *Monitor
+	scheduler            *cronjob.Scheduler
+	ePool                *EPool             // 池化各种数据
 	tokenCrypto          *proto.TokenCrypto // 用于注册消息加解密
+	producerSendInterval time.Duration      // 生产者发送消息的时间间隔 = 500ms
 	// 各种协议的处理者
 	hooks [proto.TotalNumberOfMessages]*Hook
 	// 消息帧处理链，每一个链内部无需直接向客户端写入消息,通过修改frame实现返回消息
 	flows [proto.TotalNumberOfMessages][]FlowHandler
+	// consumer producer add/remove lock
+	cpLock *sync.RWMutex
 }
 
 func (e *Engine) beforeServe() *Engine {
@@ -76,7 +77,7 @@ func (e *Engine) beforeServe() *Engine {
 		// 初始化为未实现
 		e.hooks[i] = &Hook{
 			Type:    proto.NotImplementMessageType,
-			Handler: e.defaultHandler,
+			Handler: e.defaultHookHandler,
 		}
 		// 初始化一个空流程链
 		e.flows[i] = make([]FlowHandler, 0)
@@ -107,11 +108,21 @@ func (e *Engine) beforeServe() *Engine {
 	e.monitor = &Monitor{broker: e}
 	e.scheduler = cronjob.NewScheduler(e.Ctx(), e.Logger())
 	e.scheduler.AddCronjob(e.monitor)
-
-	// 修改加解密器
-	if e.tokenCrypto == nil {
-		e.tokenCrypto = &proto.TokenCrypto{Token: e.conf.Token}
+	// 初始化池
+	e.ePool = &EPool{
+		args: &sync.Pool{
+			New: func() any { return &ChainArgs{} },
+		},
+		mResp: &sync.Pool{New: func() any {
+			return &proto.MessageResponse{
+				Status:      proto.RefusedStatus,
+				Offset:      0,
+				ReceiveTime: time.Now().Unix(),
+			}
+		}},
 	}
+	// 修改加解密器
+	e.tokenCrypto = &proto.TokenCrypto{Token: e.conf.Token}
 
 	e.bindMessageHandler()
 	e.bindTransfer()
@@ -197,58 +208,33 @@ func (e *Engine) findConsumerSlot() int {
 	return -1
 }
 
-func (e *Engine) getArgs(frame *proto.TransferFrame, con transfer.Conn) *ChainArgs {
-	args := e.argsPool.Get().(*ChainArgs)
-	args.frame = frame
-	args.con = con
-
-	return args
-}
-
-func (e *Engine) putArgs(args *ChainArgs) {
-	args.frame = nil
-	args.con = nil
-	args.producer = nil
-	args.rm = nil
-	args.pms = nil
-	args.resp = nil
-	args.err = nil
-
-	e.argsPool.Put(args)
-}
-
 // 将一系列处理过程组合成一条链
-func (e *Engine) handlerFlow(args *ChainArgs, messageType proto.MessageType) (bool, error) {
-	defer e.putArgs(args)
+func (e *Engine) flowToHandler(args *ChainArgs, messageType proto.MessageType) (bool, error) {
+	defer e.ePool.putArgs(args)
 
 	for _, link := range e.flows[messageType] {
-		stop := link(args)
-		if stop { // 此环节决定终止后续流程
-			return false, args.err
+		if link(args) { // 此环节决定终止后续流程
+			break
 		}
 	}
 
-	// 不需要返回响应
-	if args.resp == nil {
-		return false, args.err
-	}
-
-	// 需要返回响应，构建返回值
-	if args.frame.Type == proto.MessageRespType {
-		args.frame.Data, args.err = args.resp.Build()
-	}
-	// TODO: 实现对全部消息的加密
+	// 构建返回值
+	args.frame.Data, args.err = args.resp.Build()
 	if args.err != nil {
 		return false, fmt.Errorf("register response message build failed: %v", args.err)
 	}
+	// 实现对全部消息的加密
+	if proto.AllowEncryption(args.frame.Type) {
+		args.frame.Data, args.err = e.Crypto().Encrypt(args.frame.Data)
+	}
 
-	return true, nil
+	return true, args.err
 }
 
-func (e *Engine) defaultHandler(frame *proto.TransferFrame, con transfer.Conn) (bool, error) {
-	args := e.getArgs(frame, con)
+func (e *Engine) defaultHookHandler(frame *proto.TransferFrame, con transfer.Conn) (bool, error) {
+	args := e.ePool.getArgs(frame, con)
 
-	return e.handlerFlow(args, frame.Type)
+	return e.flowToHandler(args, frame.Type)
 }
 
 // 分发消息
@@ -264,31 +250,22 @@ func (e *Engine) distribute(frame *proto.TransferFrame, con transfer.Conn) {
 		needResp, err = e.EventHandler().OnNotImplementMessageType(frame, con)
 	}
 
-	// 错误，或不需要回写返回值
-	if err != nil {
+	// 业务处理错误或不需要回写返回值
+	if err != nil || !needResp {
 		e.Logger().Warn(fmt.Sprintf(
-			"message: %s handle failed: %s",
-			proto.GetDescriptor(frame.Type).Text(), err.Error(),
+			"message: %s processing complete, response: %t, err: %v",
+			proto.GetDescriptor(frame.Type).Text(), needResp, err,
 		))
 		return
 	}
 
-	if !needResp {
-		return
-	}
-
 	// 重新构建并写入消息帧
-	_bytes, err := frame.Build()
-	if err != nil { // 此处构建失败的可能性很小，存在加密错误
-		e.Logger().Warn(fmt.Sprintf("build frame <message:%d> failed: %s", frame.Type, err))
-		return
-	}
-
-	_, err = con.Write(_bytes)
+	_, _ = con.Write(frame.Build())
 	err = con.Drain()
 	if err != nil {
 		e.Logger().Warn(fmt.Sprintf(
-			"send <message:%d> to '%s' failed: %s", frame.Type, con.Addr(), err,
+			"send <message:%d> to '%s' failed: %s",
+			frame.Type, con.Addr(), err,
 		))
 	}
 }
@@ -299,4 +276,34 @@ func (e *Engine) closeConnection(addr string) {
 	if err != nil {
 		e.Logger().Warn("failed to disconnect with: ", err.Error())
 	}
+}
+
+type EPool struct {
+	args  *sync.Pool // *ChainArgs
+	mResp *sync.Pool // *proto.MessageResponse
+}
+
+// 获取一个 ChainArgs 已初始化 ChainArgs.frame, ChainArgs.con, ChainArgs.resp
+func (e *EPool) getArgs(frame *proto.TransferFrame, con transfer.Conn) *ChainArgs {
+	args := e.args.Get().(*ChainArgs)
+	args.frame = frame
+	args.con = con
+
+	// MessageResponse
+	resp := e.mResp.Get().(*proto.MessageResponse)
+	resp.Status = proto.RefusedStatus
+	resp.Offset = 0
+	resp.ReceiveTime = time.Now().Unix()
+
+	args.resp = resp
+
+	return args
+}
+
+func (e *EPool) putArgs(args *ChainArgs) {
+	args.resp.Reset()
+	e.mResp.Put(args.resp)
+
+	args.Reset()
+	e.args.Put(args)
 }

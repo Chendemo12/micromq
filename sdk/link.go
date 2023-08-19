@@ -14,6 +14,8 @@ import (
 	"time"
 )
 
+const DefaultRegisterDelay = time.Second * 2
+
 // Config 生产者和消费者配置参数
 type Config struct {
 	Host     string          `json:"host"`
@@ -26,7 +28,7 @@ type Config struct {
 	Crypto   proto.Crypto    `json:"-"` // 加解密器
 }
 
-func (c *Config) Clean() *Config {
+func (c *Config) clean() *Config {
 	if c.Port == "" {
 		c.Port = "7270"
 	}
@@ -70,6 +72,7 @@ type Broker struct {
 	reg         *proto.RegisterMessage // 注册消息
 	link        Link                   // 底层数据连接
 	linkType    proto.LinkType         // 客户端连接
+	ackTime     time.Time              //
 	event       ProducerHandler        // 事件触发器
 	tokenCrypto *proto.TokenCrypto     // 用于注册消息加解密
 	// 消息处理器
@@ -80,19 +83,40 @@ func (b *Broker) handleRegisterMessage(frame *proto.TransferFrame, con transfer.
 	err := frame.Unmarshal(b.resp, b.conf.Crypto.Decrypt)
 	if err != nil {
 		b.Logger().Warn("register message response unmarshal failed: ", err.Error())
-		_ = b.ReRegister() // retry
+		_ = b.ReRegister(true) // retry
 		return
 	}
 
 	// 处理注册响应, 目前由服务器保证重新注册等流程
-	if b.resp.Status == proto.AcceptedStatus {
+	switch b.resp.Status {
+	case proto.AcceptedStatus:
 		b.Logger().Info(b.linkType + " register successfully")
 		b.isRegister.Store(true)
 		b.event.OnRegistered()
-	} else {
+	case proto.ReRegisterStatus:
+		b.Logger().Warn(b.linkType+" register failed: ", proto.GetMessageResponseStatusText(b.resp.Status))
+		_ = b.ReRegister(true)
+	default:
 		b.Logger().Warn(b.linkType+" register failed: ", proto.GetMessageResponseStatusText(b.resp.Status))
 		b.isRegister.Store(false)
 		b.event.OnRegisterFailed(b.resp.Status)
+	}
+}
+
+func (b *Broker) handleMessageResponse(frame *proto.TransferFrame, con transfer.Conn) {
+	resp := &proto.MessageResponse{}
+	err := frame.Unmarshal(resp, b.conf.Crypto.Decrypt)
+	if err != nil {
+		b.Logger().Warn("frame decrypt failed: ", frame.String(), " ", err.Error())
+		return
+	}
+
+	switch resp.Status {
+	case proto.ReRegisterStatus: // 服务器令客户端重新注册
+		b.isRegister.Store(false)
+		b.Logger().Debug(b.linkType, " register expire, sever let re-register")
+		b.event.OnRegisterExpire()
+		_ = b.ReRegister(true)
 	}
 }
 
@@ -102,21 +126,28 @@ func (b *Broker) distribute(frame *proto.TransferFrame, con transfer.Conn) {
 	case proto.RegisterMessageRespType: // 处理注册响应
 		b.handleRegisterMessage(frame, con)
 
-	case proto.ReRegisterMessageType: // 服务器令客户端重新注册
-		b.isRegister.Store(false)
-		b.Logger().Debug(b.linkType, " register expire, sever let re-register")
-		b.event.OnRegisterExpire()
-		time.Sleep(2 * time.Second)
-		_ = b.ReRegister()
+	case proto.MessageRespType:
+		b.handleMessageResponse(frame, con)
 
 	default: // 处理其他消息类型，交由上层处理
 		b.messageHandler(frame, con)
 	}
 }
 
+// 收到来自服务端的消息发送成功确认消息
+func (b *Broker) receiveFin() {
+	b.ackTime = time.Now()
+	if b.conf.Ack == proto.NoConfirm {
+		// TODO: ack 未实现
+	}
+}
+
 func (b *Broker) init() *Broker {
 	b.ctx, b.cancel = context.WithCancel(b.conf.PCtx)
 	b.tokenCrypto = &proto.TokenCrypto{Token: b.conf.Token}
+	if b.conf.Crypto == nil {
+		b.conf.Crypto = &proto.NoCrypto{}
+	}
 	b.resp = &proto.MessageResponse{}
 	b.isRegister = &atomic.Bool{}
 	b.isConnected = &atomic.Bool{}
@@ -172,7 +203,10 @@ func (b *Broker) HeartbeatTask() {
 }
 
 // ReRegister 重新发起注册流程
-func (b *Broker) ReRegister() error {
+func (b *Broker) ReRegister(delay bool) error {
+	if delay {
+		time.Sleep(DefaultRegisterDelay)
+	}
 	frame := framePool.Get()
 	defer framePool.Put(frame)
 
@@ -238,7 +272,7 @@ func (b *Broker) OnAccepted(_ *tcp.Remote) error {
 	b.event.OnConnected()
 
 	// 连接成功,发送注册消息
-	return b.ReRegister()
+	return b.ReRegister(false)
 }
 
 func (b *Broker) OnClosed(_ *tcp.Remote) error {

@@ -104,7 +104,7 @@ func (f *TransferFrame) ParseChecksum() uint16 {
 // Unmarshal 反序列化帧消息体
 func (f *TransferFrame) Unmarshal(msg Message, decrypt ...DecryptFunc) error {
 	var err error
-	if len(decrypt) > 0 {
+	if len(decrypt) > 0 && AllowEncryption(msg.MessageType()) { // 消息允许加密
 		f.Data, err = decrypt[0](f.Data)
 		if err != nil {
 			return fmt.Errorf("message decrypt failed: %v", err)
@@ -157,9 +157,9 @@ func (f *TransferFrame) buildFields() {
 func (f *TransferFrame) BuildWith(typ MessageType, data []byte, encrypt ...EncryptFunc) ([]byte, error) {
 	f.Type = typ
 
-	if len(encrypt) < 1 {
+	if len(encrypt) < 1 || !AllowEncryption(typ) { // 未开启加密，某些消息不允许加密传输
 		f.Data = data
-		return f.Build()
+		return f.Build(), nil
 	}
 
 	// 开启加密
@@ -169,7 +169,7 @@ func (f *TransferFrame) BuildWith(typ MessageType, data []byte, encrypt ...Encry
 	}
 	f.Data = _bytes
 
-	return f.Build()
+	return f.Build(), nil
 }
 
 // BuildFrom 从协议中构建消息帧
@@ -183,7 +183,7 @@ func (f *TransferFrame) BuildFrom(m Message, encrypt ...EncryptFunc) ([]byte, er
 }
 
 // Build 编码消息帧 (最终方法)
-func (f *TransferFrame) Build() ([]byte, error) {
+func (f *TransferFrame) Build() []byte {
 	f.buildFields()
 
 	length := f.Length()
@@ -199,7 +199,7 @@ func (f *TransferFrame) Build() ([]byte, error) {
 	content[length-2] = f.Checksum[1]
 	content[length-1] = f.Tail
 
-	return content, nil
+	return content
 }
 
 // TODO: io.Reader 接口实现

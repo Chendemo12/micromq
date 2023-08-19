@@ -171,7 +171,7 @@ func NewConsumer(conf Config, handler ConsumerHandler) (*Consumer, error) {
 		Logger: conf.Logger,
 		Token:  proto.CalcSHA(conf.Token),
 	}
-	c.Clean()
+	c.clean()
 
 	con := &Consumer{handler: handler, mu: &sync.Mutex{}}
 	con.broker = &Broker{

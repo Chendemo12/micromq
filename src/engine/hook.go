@@ -19,11 +19,21 @@ type Hook struct {
 type ChainArgs struct {
 	frame    *proto.TransferFrame
 	con      transfer.Conn
+	resp     *proto.MessageResponse
 	producer *Producer
 	rm       *proto.RegisterMessage
-	resp     *proto.MessageResponse
 	err      error
 	pms      []*proto.PMessage
+}
+
+func (args *ChainArgs) Reset() {
+	args.frame = nil
+	args.con = nil
+	args.producer = nil
+	args.rm = nil
+	args.pms = nil
+	args.resp = nil
+	args.err = nil
 }
 
 type FlowHandler func(args *ChainArgs) (stop bool)

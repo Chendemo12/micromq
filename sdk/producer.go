@@ -37,15 +37,6 @@ type Producer struct {
 	queue    chan *proto.ProducerMessage
 	handler  ProducerHandler
 	dingDong chan struct{}
-	ackTime  time.Time
-}
-
-// 收到来自服务端的消息发送成功确认消息
-func (client *Producer) receiveFin() {
-	client.ackTime = time.Now()
-	if client.broker.conf.Ack == proto.NoConfirm {
-		// TODO: ack 未实现
-	}
 }
 
 // 每滴答一次，就产生一个数据发送信号
@@ -114,9 +105,6 @@ func (client *Producer) sendToServer() {
 
 func (client *Producer) distribute(frame *proto.TransferFrame, r transfer.Conn) {
 	switch frame.Type {
-
-	case proto.MessageRespType:
-		client.receiveFin()
 
 	default: // 未识别的帧类型
 		client.handler.OnNotImplementMessageType(frame, r)
@@ -236,12 +224,13 @@ func NewProducer(conf Config, handlers ...ProducerHandler) *Producer {
 		Logger: conf.Logger,
 		Token:  proto.CalcSHA(conf.Token),
 	}
+	c.clean()
+
 	con := &Producer{
 		broker:   nil,
 		queue:    make(chan *proto.ProducerMessage, 10),
 		handler:  nil,
 		dingDong: make(chan struct{}, 1),
-		ackTime:  time.Now(),
 	}
 	if len(handlers) > 0 && handlers[0] != nil {
 		con.handler = handlers[0]

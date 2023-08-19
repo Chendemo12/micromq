@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"fmt"
 	"github.com/Chendemo12/micromq/src/proto"
-	"time"
 )
 
 //
@@ -16,27 +15,21 @@ func (e *Engine) registerParser(args *ChainArgs) (stop bool) {
 
 	// 无论注册成功与否都需要构建返回值
 	args.frame.Type = proto.RegisterMessageRespType
-	args.resp = &proto.MessageResponse{
-		Status:         proto.RefusedStatus,
-		Offset:         0,
-		ReceiveTime:    time.Now().Unix(),
-		TickerInterval: int(e.ProducerSendInterval()),
-		Keepalive:      e.HeartbeatInterval(),
+	args.resp.TickerInterval = int(e.ProducerSendInterval())
+	args.resp.Keepalive = e.HeartbeatInterval()
+
+	// 消息解密并反序列化
+	err := args.frame.Unmarshal(args.rm, e.tokenCrypto.Decrypt)
+	stop = err != nil
+
+	if err != nil { // 解密或反序列化失败
+		args.resp.Status = proto.ReRegisterStatus
+		e.Logger().Info(args.con.Addr(), " register ", err.Error())
+	} else {
+		e.Logger().Info(args.con.Addr(), " register message decrypt successfully.")
 	}
 
-	// 消息解密
-	err := args.frame.Unmarshal(args.rm, e.tokenCrypto.Decrypt)
-	if err != nil { // 解密或反序列化失败，禁止注册
-		e.Logger().Debug(args.con.Addr()+" register ", err.Error())
-		// 注册消息帧解析失败，令重新发起注册
-		args.frame.Type = proto.ReRegisterMessageType
-		args.frame.Data = []byte{} // 重新发起注册暂无消息体
-		args.err = fmt.Errorf(
-			"register message parse failed, %v, let re-register: %s",
-			err, args.con.Addr(),
-		)
-	}
-	return err != nil
+	return
 }
 
 func (e *Engine) registerAuth(args *ChainArgs) (stop bool) {
@@ -127,21 +120,19 @@ func (e *Engine) registerCallback(args *ChainArgs) (stop bool) {
 
 // 处理生产者消息帧，此处需要判断生产者是否已注册
 func (e *Engine) producerNotFound(args *ChainArgs) (stop bool) {
+	// 可以不返回响应给客户端，但是对象必须初始化了
+	args.frame.Type = proto.MessageRespType
+
 	producer, exist := e.QueryProducer(args.con.Addr())
-
 	if !exist {
-		e.Logger().Debug("found unregister producer, let re-register: ", args.con.Addr())
-
-		// 重新发起注册暂无消息体
-		args.frame.Type = proto.ReRegisterMessageType
-		args.frame.Data = []byte{}
-		//args.err = fmt.Errorf("found unregister producer, let re-register: %s", args.con.Addr())
-
+		stop = true
 		// 返回令客户端重新注册命令
-		return true
+		args.resp.Status = proto.ReRegisterStatus
+		e.Logger().Debug("found unregister producer, let re-register: ", args.con.Addr())
+	} else {
+		args.producer = producer
+		args.resp.Status = proto.AcceptedStatus
 	}
-
-	args.producer = producer
 
 	return
 }
@@ -179,14 +170,11 @@ func (e *Engine) pmPublisher(args *ChainArgs) (stop bool) {
 		offset = e.Publisher(pm)
 	}
 
-	if args.producer.NeedConfirm() {
-		// 需要返回确认消息给客户端
-		args.frame.Type = proto.MessageRespType
-		args.resp = &proto.MessageResponse{
-			Status:      proto.AcceptedStatus,
-			Offset:      offset,
-			ReceiveTime: time.Now().Unix(),
-		}
+	args.resp.Offset = offset
+
+	if !args.producer.NeedConfirm() {
+		// 不需要返回确认消息给客户端
+		stop = true
 	}
 
 	return

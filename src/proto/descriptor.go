@@ -15,7 +15,7 @@ func AddDescriptor(m Message, text string) bool {
 
 type Descriptor struct {
 	code        MessageType
-	message     Message
+	message     Message // 用于文档描述，无实际作用
 	text        string
 	userDefined bool
 }
@@ -62,13 +62,6 @@ func init() {
 		code:        RegisterMessageRespType,
 		message:     &MessageResponse{Offset: 0}, // Offset == 0
 		text:        "RegisterMessageResponse",
-		userDefined: false,
-	}
-
-	descriptors[ReRegisterMessageType] = &Descriptor{
-		code:        ReRegisterMessageType,
-		message:     nil, // no payload
-		text:        "Re-RegisterMessage",
 		userDefined: false,
 	}
 

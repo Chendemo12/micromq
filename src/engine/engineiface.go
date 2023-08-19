@@ -267,9 +267,7 @@ func (e *Engine) Serve() error {
 	return e.transfer.Serve()
 }
 
-func (e *Engine) Stop() {
-	e.transfer.Stop()
-}
+func (e *Engine) Stop() { e.transfer.Stop() }
 
 // New 创建一个新的服务器
 func New(cs ...Config) *Engine {
@@ -292,20 +290,14 @@ func New(cs ...Config) *Engine {
 		conf.HeartbeatTimeout = cs[0].HeartbeatTimeout
 	}
 
-	conf.Clean()
-
+	conf.clean()
 	eng := &Engine{
 		conf:                 conf,
 		topics:               &sync.Map{},
 		transfer:             nil,
 		producerSendInterval: 500 * time.Millisecond,
 		cpLock:               &sync.RWMutex{},
-		argsPool: &sync.Pool{
-			New: func() any { return &ChainArgs{} },
-		},
 	}
-	// 修改加解密器
-	eng.tokenCrypto = &proto.TokenCrypto{Token: conf.Token}
 
 	return eng
 }

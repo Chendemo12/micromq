@@ -1,6 +1,10 @@
 # MICRO-MQ
 
-## v0.3.3 - 20230816
+## v0.3.3-pre1 - 20230816
+
+## Breaking - 20230819
+
+- 删除`ReRegisterMessageType`, 合并`MessageResponse.Status`到中;
 
 ### Feat
 

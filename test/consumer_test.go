@@ -61,7 +61,7 @@ func TestSdkConsumer(t *testing.T) {
 	consumer := &DnsConsumer{
 		Host:   "127.0.0.1",
 		Port:   "7270",
-		Token:  "123456788",
+		Token:  "123456789",
 		topics: []string{"DNS_REPORT", "DNS_UPDATE"},
 		ctx:    ctx,
 		t:      t,
