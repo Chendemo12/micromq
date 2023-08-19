@@ -14,6 +14,34 @@ import (
 
 type MessageType byte
 
+// EncryptionAllowed 是否允许加密
+func (m MessageType) EncryptionAllowed() bool {
+	switch m {
+	case RegisterMessageRespType:
+		return false
+	default:
+		return true
+	}
+}
+
+// 如果增加了新的协议代码，都需要在 descriptors 中添加其类型
+const (
+	NotImplementMessageType MessageType = 0
+	RegisterMessageType     MessageType = 1   // 客户端消费者/生产者注册消息类别 c -> s RegisterMessage
+	RegisterMessageRespType MessageType = 2   // s -> c MessageResponse
+	HeartbeatMessageType    MessageType = 4   // c -> s
+	MessageRespType         MessageType = 100 // 生产者消息响应 s -> c MessageResponse
+	PMessageType            MessageType = 101 // 生产者消息类别 c -> s PMessage
+	CMessageType            MessageType = 102 // 消费者消息类别 s -> c CMessage
+)
+
+// HumanMessage 直接返回给调用者的消息定义
+type HumanMessage interface {
+	MessageType() MessageType         // 消息类别
+	MarshalMethod() MarshalMethodType // 消息序列化方法
+	String() string
+}
+
 type Message interface {
 	HumanMessage                           // 类别和消息解码方法
 	Length() int                           // 编码后的消息序列长度
@@ -22,27 +50,6 @@ type Message interface {
 	ParseFrom(reader io.Reader) error      // 从流中解析一个消息
 	Build() ([]byte, error)                // 构建消息序列
 	BuildTo(writer io.Writer) (int, error) // 直接将待构建的消息序列写入流内
-}
-
-// 如果增加了新的协议代码，则都需要在 descriptors 中添加其类型
-const (
-	NotImplementMessageType MessageType = 0
-	RegisterMessageType     MessageType = 1   // 客户端消费者/生产者注册消息类别 c -> s RegisterMessage
-	RegisterMessageRespType MessageType = 2   // s -> c MessageResponse
-	HeartbeatMessageType    MessageType = 4   // c -> s
-	MessageRespType         MessageType = 100 // 生产者消息响应 s -> c MessageResponse
-	PMessageType            MessageType = 101 // 生产者消息类别 c -> s PMessage
-	CMessageType            MessageType = 102 // 消费者消息类别s -> c CMessage
-)
-
-// AllowEncryption 是否允许加密
-func AllowEncryption(typ MessageType) bool {
-	switch typ {
-	case RegisterMessageRespType:
-		return false
-	default:
-		return true
-	}
 }
 
 // PMessage 生产者消息数据, 不允许复制

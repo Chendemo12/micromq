@@ -24,7 +24,7 @@ func (e *Engine) registerParser(args *ChainArgs) (stop bool) {
 
 	if err != nil { // 解密或反序列化失败
 		args.resp.Status = proto.ReRegisterStatus
-		e.Logger().Info(args.con.Addr(), " register ", err.Error())
+		e.Logger().Info(args.con.Addr(), " register message decrypt failed", err.Error())
 	} else {
 		e.Logger().Info(args.con.Addr(), " register message decrypt successfully.")
 	}

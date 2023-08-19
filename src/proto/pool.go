@@ -37,28 +37,6 @@ func NewCPMPool() *CPMPool {
 	return p
 }
 
-func NewHCPMPool() *HCPMessagePool {
-	p := &HCPMessagePool{
-		cpool:    &sync.Pool{},
-		ppool:    &sync.Pool{},
-		cCounter: NewCounter(),
-		pCounter: NewCounter(),
-	}
-
-	p.cpool.New = func() any {
-		cm := &ConsumerMessage{}
-		cm.Reset()
-		return cm
-	}
-	p.ppool.New = func() any {
-		pm := &ProducerMessage{}
-		pm.Reset()
-		return pm
-	}
-
-	return p
-}
-
 type FramePool struct {
 	pool    *sync.Pool
 	counter *Counter
@@ -115,51 +93,6 @@ func (p *CPMPool) GetPM() *PMessage {
 func (p *CPMPool) PutPM(v *PMessage) {
 	v.Reset()
 	p.ppool.Put(v)
-}
-
-type HCPMessagePool struct {
-	cpool    *sync.Pool
-	ppool    *sync.Pool
-	cCounter *Counter
-	pCounter *Counter
-}
-
-// CMHistoryNum ConsumerMessage 历史数量
-func (m *HCPMessagePool) CMHistoryNum() uint64 { return m.cCounter.Value() }
-
-// PMHistoryNum ProducerMessage 历史数量
-func (m *HCPMessagePool) PMHistoryNum() uint64 { return m.pCounter.Value() }
-
-func (m *HCPMessagePool) GetCM() *ConsumerMessage {
-	v := m.cpool.Get().(*ConsumerMessage)
-	v.Reset()
-	v.counter = m.cCounter.ValueBeforeIncrement()
-
-	return v
-}
-
-func (m *HCPMessagePool) PutCM(v *ConsumerMessage) {
-	cv := m.cCounter.Value()
-	if cv == 0 || v.counter <= cv {
-		v.Reset()
-		m.cpool.Put(v)
-	}
-}
-
-func (m *HCPMessagePool) GetPM() *ProducerMessage {
-	v := m.ppool.Get().(*ProducerMessage)
-	v.Reset()
-	v.counter = m.pCounter.ValueBeforeIncrement()
-
-	return v
-}
-
-func (m *HCPMessagePool) PutPM(v *ProducerMessage) {
-	cv := m.pCounter.Value()
-	if cv == 0 || v.counter <= cv {
-		v.Reset()
-		m.ppool.Put(v)
-	}
 }
 
 // -------------------------------------------------------------------

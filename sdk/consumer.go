@@ -15,7 +15,7 @@ import (
 type ConsumerHandler interface {
 	ProducerHandler
 	Topics() []string
-	Handler(record *proto.ConsumerMessage) // （异步执行）
+	Handler(record *ConsumerMessage) // （异步执行）
 }
 
 type CHandler struct{}
@@ -26,7 +26,7 @@ func (c *CHandler) OnRegistered()     {}
 func (c *CHandler) OnRegisterExpire() {}
 
 func (c *CHandler) OnRegisterFailed(status proto.MessageResponseStatus) {}
-func (c *CHandler) Handler(record *proto.ConsumerMessage)               {}
+func (c *CHandler) Handler(record *ConsumerMessage)                     {}
 
 func (c *CHandler) OnNotImplementMessageType(frame *proto.TransferFrame, con transfer.Conn) {}
 
@@ -38,10 +38,10 @@ type Consumer struct {
 }
 
 // 将消息帧转换为消费者消息，中间经过了一个协议转换
-func (client *Consumer) toCMessage(frame *proto.TransferFrame) ([]*proto.ConsumerMessage, error) {
+func (client *Consumer) toCMessage(frame *proto.TransferFrame) ([]*ConsumerMessage, error) {
 	var err error
 
-	cms := make([]*proto.ConsumerMessage, 0)
+	cms := make([]*ConsumerMessage, 0)
 	reader := bytes.NewReader(frame.Data)
 
 	for err == nil && reader.Len() > 0 {

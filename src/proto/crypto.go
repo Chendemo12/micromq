@@ -29,7 +29,7 @@ func CalcSHA(text string, shaf ...func(stream []byte) []byte) string {
 }
 
 // DefaultCrypto 默认的加解密器，就是不加密
-func DefaultCrypto() Crypto { return dCrypto }
+func DefaultCrypto() Crypto { return &NoCrypto{} }
 
 // CalcSHA256 计算字符串的SHA-256值
 func CalcSHA256(stream []byte) []byte {
@@ -144,5 +144,3 @@ func (c TokenCrypto) Decrypt(stream []byte) ([]byte, error) {
 	// 解密数据
 	return aesGCM.Open(nil, nonce, ciphertext, nil)
 }
-
-var dCrypto = &NoCrypto{}

@@ -34,7 +34,7 @@ func (h PHandler) OnNotImplementMessageType(frame *proto.TransferFrame, con tran
 // 而是会按照服务器下发的配置定时批量发送消息,通常为500ms
 type Producer struct {
 	broker   *Broker
-	queue    chan *proto.ProducerMessage
+	queue    chan *ProducerMessage
 	handler  ProducerHandler
 	dingDong chan struct{}
 }
@@ -138,17 +138,17 @@ func (client *Producer) Crypto() proto.Crypto { return client.broker.conf.Crypto
 func (client *Producer) TokenCrypto() *proto.TokenCrypto { return client.broker.tokenCrypto }
 
 // NewRecord 从池中初始化一个新的消息记录
-func (client *Producer) NewRecord() *proto.ProducerMessage {
+func (client *Producer) NewRecord() *ProducerMessage {
 	return hmPool.GetPM()
 }
 
 // PutRecord 主动归还消息记录到池，仅在主动调用 NewRecord 却没发送数据时使用
-func (client *Producer) PutRecord(msg *proto.ProducerMessage) {
+func (client *Producer) PutRecord(msg *ProducerMessage) {
 	hmPool.PutPM(msg)
 }
 
 // Publisher 发送消息
-func (client *Producer) Publisher(msg *proto.ProducerMessage) error {
+func (client *Producer) Publisher(msg *ProducerMessage) error {
 	if msg.Topic == "" {
 		client.PutRecord(msg)
 		return ErrTopicEmpty
@@ -169,7 +169,7 @@ func (client *Producer) Publisher(msg *proto.ProducerMessage) error {
 }
 
 // Send 发送一条消息
-func (client *Producer) Send(fn func(record *proto.ProducerMessage) error) error {
+func (client *Producer) Send(fn func(record *ProducerMessage) error) error {
 	msg := client.NewRecord()
 	err := fn(msg)
 	if err != nil {
@@ -228,7 +228,7 @@ func NewProducer(conf Config, handlers ...ProducerHandler) *Producer {
 
 	con := &Producer{
 		broker:   nil,
-		queue:    make(chan *proto.ProducerMessage, 10),
+		queue:    make(chan *ProducerMessage, 10),
 		handler:  nil,
 		dingDong: make(chan struct{}, 1),
 	}

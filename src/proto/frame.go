@@ -104,10 +104,10 @@ func (f *TransferFrame) ParseChecksum() uint16 {
 // Unmarshal 反序列化帧消息体
 func (f *TransferFrame) Unmarshal(msg Message, decrypt ...DecryptFunc) error {
 	var err error
-	if len(decrypt) > 0 && AllowEncryption(msg.MessageType()) { // 消息允许加密
+	if len(decrypt) > 0 && msg.MessageType().EncryptionAllowed() { // 消息允许加密
 		f.Data, err = decrypt[0](f.Data)
 		if err != nil {
-			return fmt.Errorf("message decrypt failed: %v", err)
+			return err
 		}
 	}
 
@@ -157,7 +157,7 @@ func (f *TransferFrame) buildFields() {
 func (f *TransferFrame) BuildWith(typ MessageType, data []byte, encrypt ...EncryptFunc) ([]byte, error) {
 	f.Type = typ
 
-	if len(encrypt) < 1 || !AllowEncryption(typ) { // 未开启加密，某些消息不允许加密传输
+	if len(encrypt) < 1 || !typ.EncryptionAllowed() { // 未开启加密，某些消息不允许加密传输
 		f.Data = data
 		return f.Build(), nil
 	}

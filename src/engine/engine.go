@@ -224,7 +224,7 @@ func (e *Engine) flowToHandler(args *ChainArgs, messageType proto.MessageType) (
 		return false, fmt.Errorf("register response message build failed: %v", args.err)
 	}
 	// 实现对全部消息的加密
-	if proto.AllowEncryption(args.frame.Type) {
+	if args.frame.Type.EncryptionAllowed() {
 		args.frame.Data, args.err = e.Crypto().Encrypt(args.frame.Data)
 	}
 

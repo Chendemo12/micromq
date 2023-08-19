@@ -4,7 +4,6 @@ import (
 	"context"
 	"fmt"
 	"github.com/Chendemo12/micromq/sdk"
-	"github.com/Chendemo12/micromq/src/proto"
 	"testing"
 	"time"
 )
@@ -22,7 +21,7 @@ type DnsConsumer struct {
 
 func (c *DnsConsumer) Topics() []string { return c.topics }
 
-func (c *DnsConsumer) Handler(record *proto.ConsumerMessage) {
+func (c *DnsConsumer) Handler(record *sdk.ConsumerMessage) {
 	dns := &DnsForm{}
 	_ = record.ShouldBindJSON(dns)
 	fmt.Printf("receive message %s from:%s\n", record, record.Key)
