@@ -56,6 +56,6 @@ func GetMessageResponseStatusText(status MessageResponseStatus) string {
 
 var (
 	ErrMethodNotImplemented   = errors.New("method not implemented")
-	ErrMessageNotFull         = errors.New("message is not full")
+	ErrMessageNotFull         = errors.New("Message is not full")
 	ErrMessageSplitNotAllowed = errors.New("split is not allowed")
 )

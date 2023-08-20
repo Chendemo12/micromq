@@ -64,10 +64,11 @@ func (f *TransferFrame) newMessage() (msg Message) {
 	default:
 		msg = &NotImplementMessage{}
 	}
+	msg.Reset()
 	return
 }
 
-func (f *TransferFrame) Head() byte { return FrameHead }
+func (f *TransferFrame) Head() byte { return f.head }
 
 func (f *TransferFrame) Type() MessageType { return f.mType }
 
@@ -76,7 +77,7 @@ func (f *TransferFrame) DataSize() int {
 	return int(binary.BigEndian.Uint16(f.dataSize))
 }
 
-func (f *TransferFrame) Tail() byte { return FrameTail }
+func (f *TransferFrame) Tail() byte { return f.tail }
 
 func (f *TransferFrame) Payload() []byte { return f.data }
 
@@ -163,7 +164,7 @@ func (f *TransferFrame) BuildWith(typ MessageType, data []byte, encrypt ...Encry
 	// 开启加密
 	_bytes, err := encrypt[0](f.data)
 	if err != nil {
-		return fmt.Errorf("message encrypt failed: %v", err)
+		return fmt.Errorf("Message encrypt failed: %v", err)
 	}
 	f.data = _bytes[:]
 

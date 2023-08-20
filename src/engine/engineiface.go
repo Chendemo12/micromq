@@ -192,21 +192,18 @@ func (e *Engine) HeartbeatInterval() float64 {
 	return e.conf.HeartbeatTimeout
 }
 
-// BindMessageHandler 绑定一个自实现的协议处理器,
+// BindMessageHandler 绑定一个自实现的消息处理器,
 //
-//	参数m为实现了 proto.Message 接口的协议,
+//	参数handler为收到此消息后的同步处理函数, 如果需要在处理完成之后向客户端返回消息,则直接就地修改frame对象,
+//		HookHandler 的第一个参数为接收到的消息帧, 可通过 proto.TransferFrame.Unmarshal 方法解码, 第二个参数为当前的客户端连接,
+//		此方法返回"处理是否正确"一个参数, 若定义了 needAck 则需要返回错误消息给客户端
 //
-//	参数handler则为收到此协议后的同步处理函数, 如果需要在处理完成之后向客户端返回消息,则直接就地修改frame参数,
-//		并返回 true 和 nil, 除此之外,则不会向客户端返回任何消息
-//		HookHandler 的第一个参数为接收到的消息帧,需自行解码, 第二个参数为当前的客户端连接,
-//		此方法需返回(是否返回数据,处理是否正确)两个参数.
-//
-//	参数texts则为协议m的摘要名称
-func (e *Engine) BindMessageHandler(m proto.Message, handler HookHandler, texts ...string) error {
-	text := ""
-	if len(texts) > 0 {
-		text = texts[0]
-	} else {
+//	@param	m		proto.Message	实现了 proto.Message 接口的自定义消息, 不允许与内置消息冲突, 可通过 proto.IsMessageDefined 判断
+//	@param	handler	HookHandler		消息处理方法
+//	@param	ack 	proto.Message	是否需要返回响应给客户端
+//	@param	text 	string 			此消息的摘要名称
+func (e *Engine) BindMessageHandler(m proto.Message, ack proto.Message, handler HookHandler, text string) error {
+	if text == "" {
 		rt := reflect.TypeOf(m)
 		if rt.Kind() == reflect.Ptr {
 			rt = rt.Elem()
@@ -215,11 +212,12 @@ func (e *Engine) BindMessageHandler(m proto.Message, handler HookHandler, texts 
 	}
 
 	// 添加到协议描述符表
-	if proto.GetDescriptor(m.MessageType()).UserDefined() {
-		proto.AddDescriptor(m, text)
+	if proto.IsMessageDefined(m.MessageType()) {
+		proto.AddDescriptor(m, ack, text)
 
 		e.hooks[m.MessageType()].Type = m.MessageType()
 		e.hooks[m.MessageType()].Handler = handler
+		e.hooks[m.MessageType()].ACKDefined = ack != nil
 
 		return nil
 	} else {

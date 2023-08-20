@@ -38,16 +38,21 @@ func TestSdkProducer_Start(t *testing.T) {
 			case <-producer.Done():
 				return
 			case <-ticker.C:
-				_ = producer.Send(func(r *sdk.ProducerMessage) error {
+				err = producer.Send(func(r *sdk.ProducerMessage) error {
 					r.Topic = "DNS_REPORT"
 					r.Key = "test.test.com"
 					err2 := r.BindFromJSON(&DnsForm{
 						Domain: "test.test.com",
 						IP:     "10.64.73.28",
 					})
-					producer.Logger().Info("sending msg ...")
+
 					return err2
 				})
+				if err != nil {
+					producer.Logger().Warn("msg sent failed:  ", err)
+				} else {
+					producer.Logger().Info("msg sent")
+				}
 			}
 		}
 	}()

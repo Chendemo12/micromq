@@ -89,5 +89,6 @@ func (m *ProducerMessage) BindFromJSON(v any) error {
 		return err
 	}
 	m.Value = _bytes
+
 	return nil
 }

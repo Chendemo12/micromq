@@ -105,6 +105,7 @@ func (b *Broker) handleRegisterMessage(frame *proto.TransferFrame, con transfer.
 }
 
 func (b *Broker) handleMessageResponse(frame *proto.TransferFrame, con transfer.Conn) {
+	b.receiveACK()
 	resp := &proto.MessageResponse{}
 	err := frame.Unmarshal(resp, b.conf.Crypto.Decrypt)
 	if err != nil {
@@ -136,7 +137,7 @@ func (b *Broker) distribute(frame *proto.TransferFrame, con transfer.Conn) {
 }
 
 // 收到来自服务端的消息发送成功确认消息
-func (b *Broker) receiveFin() {
+func (b *Broker) receiveACK() {
 	b.ackTime = time.Now()
 	if b.conf.Ack == proto.NoConfirm {
 		// TODO: ack 未实现

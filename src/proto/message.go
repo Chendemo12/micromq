@@ -76,9 +76,9 @@ type PMessage struct {
 }
 
 func (m *PMessage) String() string {
-	// "<message:ConsumerMessage> on [ T::DNS_UPDATE | K::2023-07-22T12:23:48.767 ] with 200 bytes of payload"
+	// "<Message:ConsumerMessage> on [ T::DNS_UPDATE | K::2023-07-22T12:23:48.767 ] with 200 bytes of payload"
 	return fmt.Sprintf(
-		"<message:%s> on [ T::%s | K::%s ] with %d bytes of payload",
+		"<Message:%s> on [ T::%s | K::%s ] with %d bytes of payload",
 		descriptors[m.MessageType()].text, m.Topic, m.Key, len(m.Value),
 	)
 }
@@ -191,9 +191,9 @@ type CMessage struct {
 }
 
 func (m *CMessage) String() string {
-	// "<message:ConsumerMessage> on [ T::DNS_UPDATE | K::2023-07-22T12:23:48.767 | O::2342 ] with 200 bytes of payload"
+	// "<Message:ConsumerMessage> on [ T::DNS_UPDATE | K::2023-07-22T12:23:48.767 | O::2342 ] with 200 bytes of payload"
 	return fmt.Sprintf(
-		"<message:%s> on [ T::%s | K::%s | O::%d ] with %d bytes of payload",
+		"<Message:%s> on [ T::%s | K::%s | O::%d ] with %d bytes of payload",
 		descriptors[m.MessageType()].text, m.PM.Topic, m.PM.Key, m.Offset, len(m.PM.Value),
 	)
 }
@@ -245,7 +245,7 @@ func (m *CMessage) parseFrom(reader io.Reader) error {
 }
 
 func (m *CMessage) build() ([]byte, error) {
-	slice := make([]byte, 0, 16+m.PM.length()) // 分配最大长度
+	slice := make([]byte, 0) // 分配最大长度
 
 	//		TopicLength byte
 	//		Topic       []byte
@@ -275,7 +275,7 @@ type RegisterMessage struct {
 
 func (m *RegisterMessage) String() string {
 	return fmt.Sprintf(
-		"<message:%s> %s with %s",
+		"<Message:%s> %s with %s",
 		descriptors[m.MessageType()].text, m.Type, m.Ack,
 	)
 }
@@ -319,7 +319,7 @@ func (m *HeartbeatMessage) MarshalMethod() MarshalMethodType {
 
 func (m *HeartbeatMessage) String() string {
 	return fmt.Sprintf(
-		"<message:%s> from %s", descriptors[m.MessageType()].text, m.Type,
+		"<Message:%s> from %s", descriptors[m.MessageType()].text, m.Type,
 	)
 }
 
@@ -354,7 +354,7 @@ type MessageResponse struct {
 
 func (m *MessageResponse) String() string {
 	return fmt.Sprintf(
-		"<message:%s> with status: %s",
+		"<Message:%s> with status: %s",
 		descriptors[m.MessageType()].text, GetMessageResponseStatusText(m.Status),
 	)
 }
@@ -406,7 +406,7 @@ type NotImplementMessage struct{}
 
 func (m NotImplementMessage) String() string {
 	return fmt.Sprintf(
-		"<message:%s> not implemented", descriptors[m.MessageType()].text)
+		"<Message:%s> not implemented", descriptors[m.MessageType()].text)
 }
 
 func (m NotImplementMessage) MessageType() MessageType         { return NotImplementMessageType }

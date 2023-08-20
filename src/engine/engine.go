@@ -61,15 +61,13 @@ type Engine struct {
 	topics               *sync.Map
 	monitor              *Monitor
 	scheduler            *cronjob.Scheduler
-	ePool                *EPool             // 池化各种数据
-	tokenCrypto          *proto.TokenCrypto // 用于注册消息加解密
-	producerSendInterval time.Duration      // 生产者发送消息的时间间隔 = 500ms
-	// 各种协议的处理者
-	hooks [proto.TotalNumberOfMessages]*Hook
+	ePool                *EPool                             // 池化各种数据
+	tokenCrypto          *proto.TokenCrypto                 // 用于注册消息加解密
+	producerSendInterval time.Duration                      // 生产者发送消息的时间间隔 = 500ms
+	hooks                [proto.TotalNumberOfMessages]*Hook // 各种协议的处理者
 	// 消息帧处理链，每一个链内部无需直接向客户端写入消息,通过修改frame实现返回消息
-	flows [proto.TotalNumberOfMessages][]FlowHandler
-	// consumer producer add/remove lock
-	cpLock *sync.RWMutex
+	flows  [proto.TotalNumberOfMessages][]FlowHandler
+	cpLock *sync.RWMutex // consumer producer add/remove lock
 }
 
 func (e *Engine) beforeServe() *Engine {
@@ -77,8 +75,9 @@ func (e *Engine) beforeServe() *Engine {
 	for i := 0; i < proto.TotalNumberOfMessages; i++ {
 		// 初始化为未实现
 		e.hooks[i] = &Hook{
-			Type:    proto.NotImplementMessageType,
-			Handler: e.flowToHookHandler,
+			Type:       proto.NotImplementMessageType,
+			Handler:    e.flowToHookHandler, // 默认实现都是这种类型
+			ACKDefined: proto.GetDescriptor(proto.MessageType(i)).NeedACK(),
 		}
 		// 初始化一个空流程链
 		e.flows[i] = make([]FlowHandler, 0)
@@ -222,7 +221,7 @@ func (e *Engine) flowToHookHandler(frame *proto.TransferFrame, con transfer.Conn
 
 	// 不需要回复响应, 不再构建帧消息
 	if !args.ReplyClient() {
-		return args.DoNotReplyClientReason()
+		return args.NoReplyReason()
 	}
 
 	// 构建返回值
@@ -232,23 +231,30 @@ func (e *Engine) flowToHookHandler(frame *proto.TransferFrame, con transfer.Conn
 // 分发消息
 func (e *Engine) distribute(frame *proto.TransferFrame, con transfer.Conn) {
 	var err error
+	// 依据消息定义, 判断此消息是否应该返回响应给客户端
+	var needResp = proto.GetDescriptor(frame.Type()).NeedACK()
 
-	if proto.GetDescriptor(frame.Type()).MessageType() != proto.NotImplementMessageType {
+	if e.hooks[frame.Type()].Type != proto.NotImplementMessageType {
 		// 协议已实现
 		err = e.hooks[frame.Type()].Handler(frame, con)
 	} else {
-		// 此协议未注册, 通过事件回调处理
+		// 此协议未实现, 通过事件回调处理
 		err = e.EventHandler().OnNotImplementMessageType(frame, con)
 	}
 
-	// 业务处理错误或不需要回写返回值
+	// 输出日志
 	if err != nil {
-		if !errors.Is(err, ErrNoNeedToReply) {
+		if errors.Is(err, ErrNoNeedToReply) { // 设置了不返回数据
+			return
+		} else {
+			// 业务处理错误, 需要返回错误响应
 			e.Logger().Warn(fmt.Sprintf(
 				"<frame:%s> processing complete, but err: %v", frame.MessageText(), err,
 			))
 		}
+	}
 
+	if !needResp { // 依据定义此消息不需要有响应
 		return
 	}
 
@@ -283,7 +289,7 @@ func (e *EPool) getArgs(frame *proto.TransferFrame, con transfer.Conn) *ChainArg
 
 	// 响应可以不写给客户端，但是对象必须初始化
 	resp := e.mResp.Get().(*proto.MessageResponse)
-	resp.Status = proto.RefusedStatus
+	resp.Status = proto.AcceptedStatus
 	resp.Offset = 0
 	resp.ReceiveTime = time.Now().Unix()
 

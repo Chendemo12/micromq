@@ -20,7 +20,7 @@ func (e *Engine) registerParser(args *ChainArgs) (stop bool) {
 	args.frame.SetType(proto.RegisterMessageRespType)
 	if err != nil { // 解密或反序列化失败
 		args.resp.Status = proto.ReRegisterStatus
-		e.Logger().Info(args.con.Addr(), " register message decrypt failed ", err.Error())
+		e.Logger().Info(args.con.Addr(), " register message decrypt failed: ", err.Error())
 	} else {
 		e.Logger().Info(args.con.Addr(), " register message decrypt successfully.")
 	}
@@ -117,14 +117,14 @@ func (e *Engine) producerNotFound(args *ChainArgs) (stop bool) {
 	producer, exist := e.QueryProducer(args.con.Addr())
 
 	if !exist {
-		// 返回令客户端重新注册命令
+		// 未注册, 令客户端重新注册
 		args.resp.Status = proto.ReRegisterStatus
 		args.frame.SetType(proto.MessageRespType)
 		e.Logger().Debug("found unregister producer, let re-register: ", args.con.Addr())
 		stop = true
 	} else {
+		args.resp.Status = proto.AcceptedStatus // return fin
 		args.producer = producer
-		args.resp.Status = proto.AcceptedStatus
 	}
 
 	return
@@ -137,12 +137,14 @@ func (e *Engine) pmParser(args *ChainArgs) (stop bool) {
 	stop = err != nil
 
 	if err != nil {
-		args.DoNotReplyClient(err)
+		// 消息解析错误, 令重新注册
+		args.resp.Status = proto.ReRegisterStatus
+		args.SetStopFlag(err)
 	}
 
-	if err != nil || len(args.pms) < 1 {
+	if len(args.pms) < 1 {
 		// 无需向客户端返回解析失败响应，客户端在收不到FIN时会自行处理
-		args.DoNotReplyClient(ErrPMNotFound)
+		args.SetStopFlag(ErrPMNotFound)
 	}
 
 	return
@@ -159,7 +161,7 @@ func (e *Engine) pmPublisher(args *ChainArgs) (stop bool) {
 
 	if !args.producer.NeedConfirm() {
 		// 不需要返回确认消息给客户端
-		args.DoNotReplyClient(ErrNoNeedToReply)
+		args.SetStopFlag(ErrNoNeedToReply)
 		stop = true
 	}
 
@@ -169,6 +171,7 @@ func (e *Engine) pmPublisher(args *ChainArgs) (stop bool) {
 // ============================= heartbeat message =============================
 
 func (e *Engine) receiveHeartbeat(args *ChainArgs) (stop bool) {
+	args.SetStopFlag(ErrNoNeedToReply) // 不需要回复
 	e.monitor.OnClientHeartbeat(args.con.Addr())
 
 	return

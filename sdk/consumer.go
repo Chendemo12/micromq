@@ -42,7 +42,8 @@ func (client *Consumer) handleMessage(frame *proto.TransferFrame) {
 	err := proto.FrameSplit[*proto.CMessage](frame, &serverCMs, client.Crypto().Decrypt)
 	if err != nil {
 		// 消息提取失败
-		client.Logger().Warn(frame.String(), " parse failed: ", err.Error())
+		client.Logger().Warn(frame.Text(), " parse failed: ", err.Error())
+		client.Logger().Debug(len(frame.Payload()), helper.HexBeautify(frame.Payload()))
 		return
 	}
 	// 转换消息格式
