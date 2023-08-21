@@ -8,6 +8,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strings"
 )
 
 // CalcSHA 计算一个字符串hash值的十六进制字符串, 若字符串为空,则直接返回
@@ -51,6 +52,7 @@ func CalcSHA1(stream []byte) []byte {
 type Crypto interface {
 	Encrypt(stream []byte) ([]byte, error) // 加密数据体
 	Decrypt(stream []byte) ([]byte, error) // 解密数据体
+	String() string                        // 名称描述等
 }
 
 // EncryptFunc 加密方法签名
@@ -69,6 +71,8 @@ func (e NoCrypto) Encrypt(stream []byte) ([]byte, error) {
 func (e NoCrypto) Decrypt(stream []byte) ([]byte, error) {
 	return stream, nil
 }
+
+func (e NoCrypto) String() string { return "NoCrypto" }
 
 // TokenCrypto 基于Token的加解密器，用于加密注册消息
 // 也可用于加密传输消息
@@ -143,4 +147,22 @@ func (c TokenCrypto) Decrypt(stream []byte) ([]byte, error) {
 
 	// 解密数据
 	return aesGCM.Open(nil, nonce, ciphertext, nil)
+}
+
+func (c TokenCrypto) String() string { return "TokenCrypto" }
+
+// CreateCrypto 设置加密方案
+//
+//	@param	option	string		加密方案, 支持token/no (令牌加密和不加密)
+//	@param	key 	[]string	其他加密参数
+func CreateCrypto(option string, key ...string) Crypto {
+	var cry Crypto
+	switch strings.ToUpper(option) {
+	case "TOKEN":
+		cry = &TokenCrypto{Token: key[0]}
+	default:
+		cry = DefaultCrypto()
+	}
+
+	return cry
 }

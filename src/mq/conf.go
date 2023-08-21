@@ -14,6 +14,8 @@ type Config struct {
 	HttpPort    string         `json:"http_port"`    //
 	EdgeEnabled bool           `json:"edge_enabled"` // 是否开启基于Http的消息publisher功能
 	Broker      *engine.Config `json:"broker"`
+	crypto      proto.Crypto
+	cryptoPlan  []string
 }
 
 var defaultConf = Config{
@@ -28,7 +30,6 @@ var defaultConf = Config{
 		BufferSize:       100,
 		HeartbeatTimeout: 60,
 		Logger:           logger.NewDefaultLogger(),
-		Crypto:           proto.DefaultCrypto(),
 		Token:            "",
 		EventHandler:     &CoreEventHandler{},
 		Ctx:              nil,

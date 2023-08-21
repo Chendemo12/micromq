@@ -4,7 +4,6 @@ import (
 	"context"
 	"github.com/Chendemo12/fastapi-tool/logger"
 	"github.com/Chendemo12/micromq/sdk"
-	"github.com/Chendemo12/micromq/src/proto"
 	"testing"
 	"time"
 )
@@ -26,8 +25,9 @@ func TestSdkProducer_Start(t *testing.T) {
 		Ack:    sdk.AllConfirm,
 		PCtx:   ctx,
 		Logger: logger.NewDefaultLogger(),
-		Crypto: &proto.TokenCrypto{Token: token},
 	})
+	// 设置消息加密
+	producer.SetCryptoPlan("TOKEN")
 
 	if err != nil {
 		cancel()

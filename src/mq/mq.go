@@ -47,7 +47,13 @@ func (m *MQ) SetLogger(logger logger.Iface) *MQ {
 }
 
 func (m *MQ) SetCrypto(crypto proto.Crypto) *MQ {
-	m.conf.Broker.Crypto = crypto
+	m.conf.crypto = crypto
+
+	return m
+}
+
+func (m *MQ) SetCryptoPlan(option string, key ...string) *MQ {
+	m.conf.cryptoPlan = append([]string{option}, key...)
 
 	return m
 }
@@ -60,6 +66,10 @@ func (m *MQ) Serve() {
 
 	// 初始化服务
 	m.initBroker()
+	m.broker.SetCrypto(m.conf.crypto)
+	if len(m.conf.cryptoPlan) > 0 {
+		m.broker.SetCryptoPlan(m.conf.cryptoPlan[0], m.conf.cryptoPlan[1:]...)
+	}
 
 	go func() {
 		err := m.broker.Serve()
@@ -105,10 +115,6 @@ func New(cs ...Config) *MQ {
 
 		if cs[0].EdgeEnabled {
 			conf.EdgeEnabled = true
-		}
-
-		if cs[0].Broker.Crypto != nil {
-			conf.Broker.Crypto = cs[0].Broker.Crypto
 		}
 	}
 

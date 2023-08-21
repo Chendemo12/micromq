@@ -27,6 +27,7 @@ type Topic struct {
 	consumers      *sync.Map            // 全部消费者: {addr: Consumer}
 	queue          chan *proto.CMessage // 等待消费者消费的数据
 	historyRecords *proto.Queue         // proto.Queue[*HistoryRecord], 历史消息,由web查询展示
+	crypto         proto.Crypto         // 加解密器
 	mu             *sync.Mutex
 	onConsumed     func(record *HistoryRecord)
 }
@@ -82,7 +83,7 @@ func (t *Topic) consume() {
 		frame := framePool.Get()
 		// TODO: 实现多个消息压缩为帧
 		//err := proto.FrameCombine[*proto.CMessage](frame, []*proto.CMessage{cm})
-		err := frame.BuildFrom(cm) // TODO: 加密
+		err := frame.BuildFrom(cm, t.crypto.Encrypt)
 		cpmp.PutCM(cm)
 
 		if err != nil { // 消息构建失败, 增加日志记录
@@ -148,7 +149,18 @@ func (t *Topic) Publisher(pm *proto.PMessage) uint64 {
 	return offset
 }
 
-func NewTopic(name []byte, bufferSize, historySize int, onConsumed func(record *HistoryRecord)) *Topic {
+func (t *Topic) SetOnConsumed(onConsumed func(record *HistoryRecord)) *Topic {
+	t.onConsumed = onConsumed
+
+	return t
+}
+
+func (t *Topic) SetCrypto(crypto proto.Crypto) *Topic {
+	t.crypto = crypto
+	return t
+}
+
+func NewTopic(name []byte, bufferSize, historySize int) *Topic {
 	t := &Topic{
 		Name:        name,
 		HistorySize: historySize,
@@ -156,8 +168,9 @@ func NewTopic(name []byte, bufferSize, historySize int, onConsumed func(record *
 		counter:     proto.NewCounter(),
 		consumers:   &sync.Map{},
 		queue:       make(chan *proto.CMessage, bufferSize),
+		crypto:      &proto.NoCrypto{},
 		mu:          &sync.Mutex{},
-		onConsumed:  onConsumed,
+		onConsumed:  func(_ *HistoryRecord) {},
 	}
 	go t.consume()
 

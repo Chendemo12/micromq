@@ -42,8 +42,7 @@ func (client *Consumer) handleMessage(frame *proto.TransferFrame) {
 	err := proto.FrameSplit[*proto.CMessage](frame, &serverCMs, client.Crypto().Decrypt)
 	if err != nil {
 		// 消息提取失败
-		client.Logger().Warn(frame.Text(), " parse failed: ", err.Error())
-		client.Logger().Debug(len(frame.Payload()), helper.HexBeautify(frame.Payload()))
+		client.Logger().Warn(frame.Text(), " decrypt or parse failed: ", err.Error())
 		return
 	}
 	// 转换消息格式
@@ -99,14 +98,24 @@ func (client *Consumer) Logger() logger.Iface { return client.broker.Logger() }
 func (client *Consumer) Done() <-chan struct{} { return client.broker.Done() }
 
 // Crypto 全局加密器
-func (client *Consumer) Crypto() proto.Crypto { return client.broker.conf.Crypto }
+func (client *Consumer) Crypto() proto.Crypto { return client.broker.crypto }
 
 // TokenCrypto Token加解密器，亦可作为全局加解密器
 func (client *Consumer) TokenCrypto() *proto.TokenCrypto { return client.broker.tokenCrypto }
 
-// SetCrypto 设置消息加密器
+// SetCrypto 修改全局加解密器, 必须在 Serve 之前设置
 func (client *Consumer) SetCrypto(crypto proto.Crypto) *Consumer {
-	client.broker.conf.Crypto = crypto
+	client.broker.SetCrypto(crypto)
+
+	return client
+}
+
+// SetCryptoPlan 设置加密方案
+//
+//	@param	option	string		加密方案, 支持token/no (令牌加密和不加密)
+//	@param	key 	[]string	其他加密参数
+func (client *Consumer) SetCryptoPlan(option string, key ...string) *Consumer {
+	client.broker.SetCryptoPlan(option, key...)
 
 	return client
 }
@@ -162,7 +171,6 @@ func NewConsumer(conf Config, handler ConsumerHandler) (*Consumer, error) {
 		PCtx:   conf.PCtx,
 		Logger: conf.Logger,
 		Token:  proto.CalcSHA(conf.Token),
-		Crypto: conf.Crypto,
 	}
 	c.clean()
 

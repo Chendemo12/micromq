@@ -98,18 +98,19 @@ func (e *Engine) RangeTopic(fn func(topic *Topic) bool) {
 	})
 }
 
-// AddTopic 添加一个新的topic,如果topic以存在则跳过
+// AddTopic 添加一个新的topic
 func (e *Engine) AddTopic(name []byte) *Topic {
-	topic, _ := e.topics.LoadOrStore(
-		string(name), NewTopic(
-			name,
-			e.conf.BufferSize,
-			e.conf.topicHistorySize,
-			e.EventHandler().OnCMConsumed,
-		),
+	nt := NewTopic(
+		name,
+		e.conf.BufferSize,
+		e.conf.topicHistorySize,
 	)
+	nt.SetOnConsumed(e.EventHandler().OnCMConsumed)
+	nt.SetCrypto(e.Crypto())
 
-	return topic.(*Topic)
+	e.topics.Store(string(name), nt)
+
+	return nt
 }
 
 // GetTopic 获取topic,并在不存在时自动新建一个topic
@@ -226,14 +227,27 @@ func (e *Engine) BindMessageHandler(m proto.Message, ack proto.Message, handler 
 }
 
 // SetCrypto 修改全局加解密器, 必须在 Serve 之前设置
-func (e *Engine) SetCrypto(cry proto.Crypto) *Engine {
-	e.conf.Crypto = cry
+func (e *Engine) SetCrypto(crypto proto.Crypto) *Engine {
+	if crypto != nil {
+		e.crypto = crypto
+	}
+
+	return e
+}
+
+// SetCryptoPlan 设置加密方案
+//
+//	@param	option	string		加密方案, 支持token/no (令牌加密和不加密)
+//	@param	key 	[]string	其他加密参数
+func (e *Engine) SetCryptoPlan(option string, key ...string) *Engine {
+	args := append([]string{e.conf.Token}, key...)
+	e.crypto = proto.CreateCrypto(option, args...)
 
 	return e
 }
 
 // Crypto 全局加解密器
-func (e *Engine) Crypto() proto.Crypto { return e.conf.Crypto }
+func (e *Engine) Crypto() proto.Crypto { return e.crypto }
 
 // TokenCrypto Token加解密器，亦可作为全局加解密器
 func (e *Engine) TokenCrypto() *proto.TokenCrypto { return e.tokenCrypto }
@@ -262,6 +276,7 @@ func (e *Engine) Serve() error {
 	if e.NeedToken() {
 		e.Logger().Debug("broker token authentication is enabled.")
 	}
+	e.Logger().Debug("broker global crypto: ", e.crypto.String())
 	return e.transfer.Serve()
 }
 
@@ -282,7 +297,6 @@ func New(cs ...Config) *Engine {
 		conf.MaxOpenConn = cs[0].MaxOpenConn
 		conf.BufferSize = cs[0].BufferSize
 		conf.Logger = cs[0].Logger
-		conf.Crypto = cs[0].Crypto
 		conf.Token = cs[0].Token
 		conf.EventHandler = cs[0].EventHandler
 		conf.HeartbeatTimeout = cs[0].HeartbeatTimeout
@@ -295,6 +309,7 @@ func New(cs ...Config) *Engine {
 		transfer:             nil,
 		producerSendInterval: 500 * time.Millisecond,
 		cpLock:               &sync.RWMutex{},
+		crypto:               proto.DefaultCrypto(),
 	}
 
 	return eng

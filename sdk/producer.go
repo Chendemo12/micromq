@@ -72,8 +72,9 @@ func (client *Producer) sendToServer() {
 			return
 
 		case <-client.dingDong:
+			// TODO: 定时批量发送消息
+			continue
 
-		// TODO: 定时批量发送消息
 		case pm := <-client.queue:
 			frame := framePool.Get()
 			serverPM := &proto.PMessage{
@@ -121,18 +122,28 @@ func (client *Producer) Logger() logger.Iface { return client.broker.Logger() }
 
 func (client *Producer) Done() <-chan struct{} { return client.broker.Done() }
 
-// SetCrypto 设置消息加密器
+// Crypto 全局加密器
+func (client *Producer) Crypto() proto.Crypto { return client.broker.crypto }
+
+// TokenCrypto Token加解密器，亦可作为全局加密器
+func (client *Producer) TokenCrypto() *proto.TokenCrypto { return client.broker.tokenCrypto }
+
+// SetCrypto 修改全局加解密器, 必须在 Serve 之前设置
 func (client *Producer) SetCrypto(crypto proto.Crypto) *Producer {
-	client.broker.conf.Crypto = crypto
+	client.broker.SetCrypto(crypto)
 
 	return client
 }
 
-// Crypto 全局加密器
-func (client *Producer) Crypto() proto.Crypto { return client.broker.conf.Crypto }
+// SetCryptoPlan 设置加密方案
+//
+//	@param	option	string		加密方案, 支持token/no (令牌加密和不加密)
+//	@param	key 	[]string	其他加密参数
+func (client *Producer) SetCryptoPlan(option string, key ...string) *Producer {
+	client.broker.SetCryptoPlan(option, key...)
 
-// TokenCrypto Token加解密器，亦可作为全局加密器
-func (client *Producer) TokenCrypto() *proto.TokenCrypto { return client.broker.tokenCrypto }
+	return client
+}
 
 // NewRecord 从池中初始化一个新的消息记录
 func (client *Producer) NewRecord() *ProducerMessage {
@@ -221,7 +232,6 @@ func NewProducer(conf Config, handlers ...ProducerHandler) *Producer {
 		PCtx:   conf.PCtx,
 		Logger: conf.Logger,
 		Token:  proto.CalcSHA(conf.Token),
-		Crypto: conf.Crypto,
 	}
 	c.clean()
 

@@ -85,13 +85,15 @@ func (e *Engine) registerAllow(args *ChainArgs) (stop bool) {
 
 	// 输出日志
 	if args.resp.Status == proto.AcceptedStatus {
-		e.Logger().Info(args.con.Addr() + " register successfully")
+		e.Logger().Info(fmt.Sprintf("%s::%s register successfully", args.con.Addr(), args.rm.Type))
 	} else {
+		stop = true
 		e.Logger().Warn(fmt.Sprintf(
 			"%s register failed, because of: %s, actively close the connection",
 			args.con.Addr(), proto.GetMessageResponseStatusText(args.resp.Status),
 		))
-		// 注册失败，主动断开连接
+		// 注册失败，主动断开连接, 不再回复响应和触发回调
+		args.SetError(ErrNoNeedToReply) // 连接已经被主动关闭了,无法再回复响应
 		e.closeConnection(args.con.Addr())
 	}
 

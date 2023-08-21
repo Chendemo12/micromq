@@ -19,7 +19,6 @@ type Config struct {
 	BufferSize       int             `json:"buffer_size"`   // 生产者消息历史记录最大数量
 	HeartbeatTimeout float64         `json:"heartbeat_timeout"`
 	Logger           logger.Iface    `json:"-"`
-	Crypto           proto.Crypto    `json:"-"` // 加解密器
 	Token            string          `json:"-"` // 注册认证密钥
 	EventHandler     EventHandler    `json:"-"` // 事件触发器
 	Ctx              context.Context `json:"-"`
@@ -36,9 +35,6 @@ func (c *Config) clean() *Config {
 
 	if c.Logger == nil {
 		c.Logger = logger.NewDefaultLogger()
-	}
-	if c.Crypto == nil {
-		c.Crypto = proto.DefaultCrypto()
 	}
 
 	if c.EventHandler == nil {
@@ -63,6 +59,7 @@ type Engine struct {
 	scheduler            *cronjob.Scheduler
 	ePool                *EPool                             // 池化各种数据
 	tokenCrypto          *proto.TokenCrypto                 // 用于注册消息加解密
+	crypto               proto.Crypto                       // 加解密器
 	producerSendInterval time.Duration                      // 生产者发送消息的时间间隔 = 500ms
 	hooks                [proto.TotalNumberOfMessages]*Hook // 各种协议的处理者
 	// 消息帧处理链，每一个链内部无需直接向客户端写入消息,通过修改frame实现返回消息

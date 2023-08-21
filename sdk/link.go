@@ -25,7 +25,6 @@ type Config struct {
 	PCtx     context.Context `json:"-"` // 父context，默认为 context.Background()
 	Logger   logger.Iface    `json:"-"`
 	Token    string          `json:"-"`
-	Crypto   proto.Crypto    `json:"-"` // 加解密器
 }
 
 func (c *Config) clean() *Config {
@@ -43,9 +42,6 @@ func (c *Config) clean() *Config {
 	}
 	if c.LinkType == "" {
 		c.LinkType = "tcp"
-	}
-	if c.Crypto == nil {
-		c.Crypto = proto.DefaultCrypto()
 	}
 
 	return c
@@ -75,6 +71,7 @@ type Broker struct {
 	ackTime     time.Time              //
 	event       ProducerHandler        // 事件触发器
 	tokenCrypto *proto.TokenCrypto     // 用于注册消息加解密
+	crypto      proto.Crypto           // 加解密器
 	// 消息处理器
 	messageHandler func(frame *proto.TransferFrame, con transfer.Conn)
 }
@@ -109,7 +106,7 @@ func (b *Broker) handleRegisterMessage(frame *proto.TransferFrame, con transfer.
 
 func (b *Broker) handleMessageResponse(frame *proto.TransferFrame, con transfer.Conn) {
 	resp := &proto.MessageResponse{}
-	err := frame.Unmarshal(resp, b.conf.Crypto.Decrypt)
+	err := frame.Unmarshal(resp, b.crypto.Decrypt)
 	if err != nil {
 		b.Logger().Warn("frame decrypt failed: ", frame.String(), " ", err.Error())
 		return
@@ -160,12 +157,18 @@ func (b *Broker) receiveACK() {
 func (b *Broker) init() *Broker {
 	b.ctx, b.cancel = context.WithCancel(b.conf.PCtx)
 	b.tokenCrypto = &proto.TokenCrypto{Token: b.conf.Token}
-	if b.conf.Crypto == nil {
-		b.conf.Crypto = &proto.NoCrypto{}
+	if b.crypto == nil {
+		// 初始化为不加密
+		b.crypto = proto.DefaultCrypto()
 	}
 	b.regResp = &proto.MessageResponse{}
 	b.isRegister = &atomic.Bool{}
 	b.isConnected = &atomic.Bool{}
+
+	if b.conf.Token != "" {
+		b.Logger().Debug("broker token authentication is enabled.")
+	}
+	b.Logger().Debug("broker global crypto: ", b.crypto.String())
 
 	return b
 }
@@ -187,6 +190,28 @@ func (b *Broker) LinkType() proto.LinkType { return b.linkType }
 
 func (b *Broker) Done() <-chan struct{} { return b.ctx.Done() }
 
+// SetCrypto 修改全局加解密器, 必须在 Serve 之前设置
+func (b *Broker) SetCrypto(crypto proto.Crypto) *Broker {
+	if crypto != nil {
+		b.crypto = crypto
+	}
+
+	return b
+}
+
+// SetCryptoPlan 设置加密方案
+//
+//	@param	option	string		加密方案, 支持token/no (令牌加密和不加密)
+//	@param	key 	[]string	其他加密参数
+func (b *Broker) SetCryptoPlan(option string, key ...string) *Broker {
+	args := append([]string{b.conf.Token}, key...)
+	b.crypto = proto.CreateCrypto(option, args...)
+
+	b.Logger().Debug("broker global crypto reset: ", b.crypto.String())
+	return b
+}
+
+// HeartbeatTask 心跳轮询任务
 func (b *Broker) HeartbeatTask() {
 	for {
 		select {
@@ -205,12 +230,7 @@ func (b *Broker) HeartbeatTask() {
 			}
 
 			frame := framePool.Get()
-			// 加密消息帧
-			err := frame.BuildFrom(m, b.conf.Crypto.Encrypt)
-			if err == nil {
-				_, _ = frame.WriteTo(b.link)
-				_ = b.link.Drain()
-			}
+			_ = b.Send(frame, m)
 			framePool.Put(frame) // release
 		}
 	}
@@ -282,11 +302,10 @@ func (b *Broker) Send(frame *proto.TransferFrame, message proto.Message) error {
 	//)
 
 	// 加密消息帧
-	err := frame.BuildFrom(message, b.conf.Crypto.Encrypt)
+	err := frame.BuildFrom(message, b.crypto.Encrypt)
 	if err != nil {
 		return err
 	}
-
 	_, _ = frame.WriteTo(b.link)
 	err = b.link.Drain()
 	if err != nil {
@@ -303,7 +322,7 @@ func (b *Broker) AsyncSend(frame *proto.TransferFrame, message proto.Message) er
 	//)
 
 	// 加密消息帧
-	err := frame.BuildFrom(message, b.conf.Crypto.Encrypt)
+	err := frame.BuildFrom(message, b.crypto.Encrypt)
 	if err != nil {
 		return err
 	}

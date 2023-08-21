@@ -46,6 +46,9 @@ func (c *DnsConsumer) Start() error {
 		Token:  c.Token,
 	}, c)
 
+	// 设置消息加密
+	con.SetCryptoPlan("TOKEN")
+
 	if err != nil {
 		return err
 	}
