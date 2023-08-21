@@ -104,11 +104,20 @@ func (client *Consumer) Crypto() proto.Crypto { return client.broker.conf.Crypto
 // TokenCrypto Token加解密器，亦可作为全局加解密器
 func (client *Consumer) TokenCrypto() *proto.TokenCrypto { return client.broker.tokenCrypto }
 
+// SetCrypto 设置消息加密器
+func (client *Consumer) SetCrypto(crypto proto.Crypto) *Consumer {
+	client.broker.conf.Crypto = crypto
+
+	return client
+}
+
 // HandlerFunc 获取注册的消息处理方法
 func (client *Consumer) HandlerFunc() ConsumerHandler { return client.handler }
 
 // Start 异步启动
 func (client *Consumer) Start() error {
+	client.broker.init()
+
 	err := client.broker.link.Connect()
 	if err != nil {
 		// 连接服务器失败
@@ -153,6 +162,7 @@ func NewConsumer(conf Config, handler ConsumerHandler) (*Consumer, error) {
 		PCtx:   conf.PCtx,
 		Logger: conf.Logger,
 		Token:  proto.CalcSHA(conf.Token),
+		Crypto: conf.Crypto,
 	}
 	c.clean()
 
@@ -164,7 +174,6 @@ func NewConsumer(conf Config, handler ConsumerHandler) (*Consumer, error) {
 		messageHandler: con.distribute,
 	}
 
-	con.broker.init()
 	con.broker.SetTransfer("tcp") // TODO: 目前仅支持TCP
 	con.broker.SetRegisterMessage(&proto.RegisterMessage{
 		Topics: handler.Topics(),

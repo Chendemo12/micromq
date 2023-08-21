@@ -68,7 +68,7 @@ type Broker struct {
 	cancel      context.CancelFunc
 	isConnected *atomic.Bool           // tcp是否连接成功
 	isRegister  *atomic.Bool           // 是否注册成功
-	resp        *proto.MessageResponse // 注册响应
+	regResp     *proto.MessageResponse // 注册响应
 	reg         *proto.RegisterMessage // 注册消息
 	link        Link                   // 底层数据连接
 	linkType    proto.LinkType         // 客户端连接
@@ -80,7 +80,7 @@ type Broker struct {
 }
 
 func (b *Broker) handleRegisterMessage(frame *proto.TransferFrame, con transfer.Conn) {
-	err := frame.Unmarshal(b.resp, b.conf.Crypto.Decrypt)
+	err := frame.Unmarshal(b.regResp) // 注册响应不加密
 	if err != nil {
 		b.Logger().Warn("register message response unmarshal failed: ", err.Error())
 		_ = b.ReRegister(true) // retry
@@ -88,24 +88,26 @@ func (b *Broker) handleRegisterMessage(frame *proto.TransferFrame, con transfer.
 	}
 
 	// 处理注册响应, 目前由服务器保证重新注册等流程
-	switch b.resp.Status {
+	switch b.regResp.Status {
+
 	case proto.AcceptedStatus:
 		b.isRegister.Store(true)
 		b.Logger().Info(b.linkType + " register successfully")
 		b.event.OnRegistered()
+
 	case proto.ReRegisterStatus:
 		b.isRegister.Store(false)
-		b.Logger().Warn(b.linkType+" register failed: ", proto.GetMessageResponseStatusText(b.resp.Status))
+		b.Logger().Warn(b.linkType+" register delay: ", proto.GetMessageResponseStatusText(b.regResp.Status))
 		_ = b.ReRegister(true)
+
 	default:
 		b.isRegister.Store(false)
-		b.Logger().Warn(b.linkType+" register failed: ", proto.GetMessageResponseStatusText(b.resp.Status))
-		b.event.OnRegisterFailed(b.resp.Status)
+		b.Logger().Warn(b.linkType+" register failed: ", proto.GetMessageResponseStatusText(b.regResp.Status))
+		b.event.OnRegisterFailed(b.regResp.Status)
 	}
 }
 
 func (b *Broker) handleMessageResponse(frame *proto.TransferFrame, con transfer.Conn) {
-	b.receiveACK()
 	resp := &proto.MessageResponse{}
 	err := frame.Unmarshal(resp, b.conf.Crypto.Decrypt)
 	if err != nil {
@@ -114,6 +116,17 @@ func (b *Broker) handleMessageResponse(frame *proto.TransferFrame, con transfer.
 	}
 
 	switch resp.Status {
+	case proto.AcceptedStatus:
+		b.receiveACK()
+
+	case proto.RefusedStatus, proto.TokenIncorrectStatus:
+		b.isRegister.Store(false)
+		b.Logger().Debug(fmt.Sprintf(
+			"%s register expire: %s, sever let logout",
+			b.linkType, proto.GetMessageResponseStatusText(resp.Status),
+		))
+		b.event.OnRegisterFailed(resp.Status)
+
 	case proto.ReRegisterStatus: // 服务器令客户端重新注册
 		b.isRegister.Store(false)
 		b.Logger().Debug(b.linkType, " register expire, sever let re-register")
@@ -150,7 +163,7 @@ func (b *Broker) init() *Broker {
 	if b.conf.Crypto == nil {
 		b.conf.Crypto = &proto.NoCrypto{}
 	}
-	b.resp = &proto.MessageResponse{}
+	b.regResp = &proto.MessageResponse{}
 	b.isRegister = &atomic.Bool{}
 	b.isConnected = &atomic.Bool{}
 
@@ -222,18 +235,18 @@ func (b *Broker) ReRegister(delay bool) error {
 
 // TickerInterval 数据发送周期
 func (b *Broker) TickerInterval() time.Duration {
-	if b.resp.TickerInterval == 0 {
+	if b.regResp.TickerInterval == 0 {
 		return DefaultProducerSendInterval
 	}
-	return time.Duration(b.resp.TickerInterval) * time.Millisecond
+	return time.Duration(b.regResp.TickerInterval) * time.Millisecond
 }
 
 // HeartbeatInterval 心跳周期
 func (b *Broker) HeartbeatInterval() time.Duration {
-	if b.resp.Keepalive == 0 {
+	if b.regResp.Keepalive == 0 {
 		return DefaultProducerSendInterval * 30 // 15s
 	}
-	return time.Duration(b.resp.Keepalive) * time.Second
+	return time.Duration(b.regResp.Keepalive) * time.Second
 }
 
 func (b *Broker) SetRegisterMessage(message *proto.RegisterMessage) *Broker {
@@ -260,6 +273,50 @@ func (b *Broker) SetTransfer(trans string) *Broker {
 	}
 
 	return b
+}
+
+// Send 同步发送消息
+func (b *Broker) Send(frame *proto.TransferFrame, message proto.Message) error {
+	//err := proto.FrameCombine[*proto.PMessage](
+	//	frame, []*proto.PMessage{serverPM}, client.Crypto().Encrypt,
+	//)
+
+	// 加密消息帧
+	err := frame.BuildFrom(message, b.conf.Crypto.Encrypt)
+	if err != nil {
+		return err
+	}
+
+	_, _ = frame.WriteTo(b.link)
+	err = b.link.Drain()
+	if err != nil {
+		return err
+	}
+
+	return nil
+}
+
+// AsyncSend 异步发送消息
+func (b *Broker) AsyncSend(frame *proto.TransferFrame, message proto.Message) error {
+	//err := proto.FrameCombine[*proto.PMessage](
+	//	frame, []*proto.PMessage{serverPM}, client.Crypto().Encrypt,
+	//)
+
+	// 加密消息帧
+	err := frame.BuildFrom(message, b.conf.Crypto.Encrypt)
+	if err != nil {
+		return err
+	}
+
+	_, _ = frame.WriteTo(b.link)
+	go func() {
+		err = b.link.Drain()
+		if err != nil {
+			b.Logger().Warn("send message to server failed: ", err)
+		}
+	}()
+
+	return nil
 }
 
 // ================================ TCP messageHandler ===============================

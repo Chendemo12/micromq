@@ -37,26 +37,27 @@ func (args *ChainArgs) Reset() {
 	args.stopErr = nil
 }
 
-// ReplyClient 是否需要回复客户端
+// ReplyClient 是否需要回复客户端, 只要未显示设置不回复，均需要回复响应给客户端
 func (args *ChainArgs) ReplyClient() bool {
 	if args.stopErr != nil && errors.Is(args.stopErr, ErrNoNeedToReply) {
 		return false
 	}
 
-	return args.stopErr == nil
+	return true
 }
 
-// SetStopFlag 设置终止原因
-func (args *ChainArgs) SetStopFlag(errs ...error) {
-	if len(errs) > 0 {
-		args.stopErr = errs[0]
-	} else {
-		args.stopErr = ErrNoNeedToReply
+// SetError 记录错误
+func (args *ChainArgs) SetError(err error) *ChainArgs {
+	args.stopErr = err
+
+	return args
+}
+
+// StopError 判断是否处理错误
+func (args *ChainArgs) StopError() error {
+	if args.stopErr != nil && errors.Is(args.stopErr, ErrNoNeedToReply) {
+		return nil
 	}
-}
-
-// NoReplyReason 不回复客户端的原因
-func (args *ChainArgs) NoReplyReason() error {
 	return args.stopErr
 }
 

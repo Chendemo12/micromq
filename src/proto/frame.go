@@ -89,12 +89,6 @@ func (f *TransferFrame) Text() string {
 // MessageText 获取帧内消息的文字描述
 func (f *TransferFrame) MessageText() string { return descriptors[f.mType].text }
 
-// SetType 修改帧类型
-func (f *TransferFrame) SetType(typ MessageType) *TransferFrame {
-	f.mType = typ
-	return f
-}
-
 // SetPayload 修改帧载荷信息
 func (f *TransferFrame) SetPayload(data []byte) *TransferFrame {
 	f.data = data[:]

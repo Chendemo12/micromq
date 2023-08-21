@@ -38,6 +38,11 @@ func main() {
 
 	handler := mq.New(conf)
 	handler.SetLogger(zaplog.NewLogger(zapConf).Sugar())
+	// 设置消息加密
+	crypto := &proto.TokenCrypto{
+		Token: proto.CalcSHA(environ.GetString("BROKER_TOKEN", "")),
+	}
+	handler.SetCrypto(crypto)
 
 	handler.Serve()
 }

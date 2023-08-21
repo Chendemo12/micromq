@@ -6,6 +6,7 @@ import (
 	"github.com/Chendemo12/fastapi-tool/logger"
 	"github.com/Chendemo12/functools/python"
 	"github.com/Chendemo12/micromq/src/engine"
+	"github.com/Chendemo12/micromq/src/proto"
 	"github.com/Chendemo12/micromq/src/transfer"
 	"os"
 )
@@ -20,12 +21,6 @@ type MQ struct {
 	logger   logger.Iface
 }
 
-func (m *MQ) Config() any { return m.conf }
-
-func (m *MQ) Logger() logger.Iface { return m.logger }
-
-func (m *MQ) Ctx() context.Context { return m.ctx }
-
 func (m *MQ) initBroker() *MQ {
 	// broker 各种事件触发器
 	m.conf.Broker.EventHandler = &CoreEventHandler{}
@@ -36,11 +31,24 @@ func (m *MQ) initBroker() *MQ {
 	m.broker = engine.New(*m.conf.Broker)
 	m.broker.ReplaceTransfer(m.transfer)
 	m.broker.SetEventHandler(m.conf.Broker.EventHandler)
+
 	return m
 }
 
+func (m *MQ) Config() any { return m.conf }
+
+func (m *MQ) Logger() logger.Iface { return m.logger }
+
+func (m *MQ) Ctx() context.Context { return m.ctx }
+
 func (m *MQ) SetLogger(logger logger.Iface) *MQ {
 	m.logger = logger
+	return m
+}
+
+func (m *MQ) SetCrypto(crypto proto.Crypto) *MQ {
+	m.conf.Broker.Crypto = crypto
+
 	return m
 }
 

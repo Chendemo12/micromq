@@ -9,6 +9,10 @@ import (
 
 func (e *Engine) registerParser(args *ChainArgs) (stop bool) {
 	args.rm = &proto.RegisterMessage{}
+	// 设置为注册响应
+	args.resp.Type = proto.RegisterMessageRespType
+	// 默认拒绝注册
+	args.resp.Status = proto.ReRegisterStatus
 	args.resp.TickerInterval = int(e.ProducerSendInterval())
 	args.resp.Keepalive = e.HeartbeatInterval()
 
@@ -16,8 +20,6 @@ func (e *Engine) registerParser(args *ChainArgs) (stop bool) {
 	err := args.frame.Unmarshal(args.rm, e.tokenCrypto.Decrypt)
 	stop = err != nil
 
-	// 应先 Unmarshal 再就地修改 frameType
-	args.frame.SetType(proto.RegisterMessageRespType)
 	if err != nil { // 解密或反序列化失败
 		args.resp.Status = proto.ReRegisterStatus
 		e.Logger().Info(args.con.Addr(), " register message decrypt failed: ", err.Error())
@@ -117,13 +119,11 @@ func (e *Engine) producerNotFound(args *ChainArgs) (stop bool) {
 	producer, exist := e.QueryProducer(args.con.Addr())
 
 	if !exist {
+		e.Logger().Debug("found unregister producer, let re-register: ", args.con.Addr())
 		// 未注册, 令客户端重新注册
 		args.resp.Status = proto.ReRegisterStatus
-		args.frame.SetType(proto.MessageRespType)
-		e.Logger().Debug("found unregister producer, let re-register: ", args.con.Addr())
 		stop = true
 	} else {
-		args.resp.Status = proto.AcceptedStatus // return fin
 		args.producer = producer
 	}
 
@@ -134,17 +134,20 @@ func (e *Engine) pmParser(args *ChainArgs) (stop bool) {
 	// 存在多个消息封装为一个帧
 	args.pms = make([]*proto.PMessage, 0)
 	err := proto.FrameSplit[*proto.PMessage](args.frame, &args.pms, e.Crypto().Decrypt)
-	stop = err != nil
 
 	if err != nil {
-		// 消息解析错误, 令重新注册
-		args.resp.Status = proto.ReRegisterStatus
-		args.SetStopFlag(err)
+		// 消息解析错误
+		args.resp.Status = proto.TokenIncorrectStatus
+		args.SetError(fmt.Errorf("frame decrypt failed: %v", err))
+
+		return true
 	}
 
 	if len(args.pms) < 1 {
+		args.resp.Status = proto.ReRegisterStatus
 		// 无需向客户端返回解析失败响应，客户端在收不到FIN时会自行处理
-		args.SetStopFlag(ErrPMNotFound)
+		args.SetError(ErrPMNotFound)
+		stop = true
 	}
 
 	return
@@ -161,7 +164,7 @@ func (e *Engine) pmPublisher(args *ChainArgs) (stop bool) {
 
 	if !args.producer.NeedConfirm() {
 		// 不需要返回确认消息给客户端
-		args.SetStopFlag(ErrNoNeedToReply)
+		args.SetError(ErrNoNeedToReply)
 		stop = true
 	}
 
@@ -171,7 +174,7 @@ func (e *Engine) pmPublisher(args *ChainArgs) (stop bool) {
 // ============================= heartbeat message =============================
 
 func (e *Engine) receiveHeartbeat(args *ChainArgs) (stop bool) {
-	args.SetStopFlag(ErrNoNeedToReply) // 不需要回复
+	args.SetError(ErrNoNeedToReply) // 不需要回复
 	e.monitor.OnClientHeartbeat(args.con.Addr())
 
 	return

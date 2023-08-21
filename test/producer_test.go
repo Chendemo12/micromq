@@ -4,6 +4,7 @@ import (
 	"context"
 	"github.com/Chendemo12/fastapi-tool/logger"
 	"github.com/Chendemo12/micromq/sdk"
+	"github.com/Chendemo12/micromq/src/proto"
 	"testing"
 	"time"
 )
@@ -17,14 +18,15 @@ type DnsForm struct {
 func TestSdkProducer_Start(t *testing.T) {
 	ticker := time.NewTicker(1000 * time.Millisecond)
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Minute)
-
+	token := "123456788"
 	producer, err := sdk.NewAsyncProducer(sdk.Config{
 		Host:   "127.0.0.1",
 		Port:   "7270",
-		Token:  "123456788",
+		Token:  token,
 		Ack:    sdk.AllConfirm,
 		PCtx:   ctx,
 		Logger: logger.NewDefaultLogger(),
+		Crypto: &proto.TokenCrypto{Token: token},
 	})
 
 	if err != nil {

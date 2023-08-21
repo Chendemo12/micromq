@@ -28,7 +28,7 @@ const (
 // EncryptionAllowed 是否允许加密消息体
 func (m MessageType) EncryptionAllowed() bool {
 	switch m {
-	case RegisterMessageRespType:
+	case RegisterMessageRespType, MessageRespType:
 		// 为保证客户端在token错误情况下也可以识别注册响应，此消息应禁止加密
 		return false
 	default:
@@ -341,6 +341,7 @@ func (m *HeartbeatMessage) build() ([]byte, error) {
 
 // MessageResponse 消息响应， P和C通用
 type MessageResponse struct {
+	Type MessageType `json:"-"`
 	// 仅当 AcceptedStatus 时才认为服务器接受了请求并下方了有效的参数
 	Status      MessageResponseStatus `json:"status"`
 	Offset      uint64                `json:"offset"`
@@ -361,10 +362,10 @@ func (m *MessageResponse) String() string {
 
 // MessageType 依据偏移量字段判断消息类型
 func (m *MessageResponse) MessageType() MessageType {
-	if m.Offset == 0 {
-		return RegisterMessageRespType
+	if m.Type == 0 {
+		return MessageRespType
 	}
-	return MessageRespType
+	return m.Type
 }
 
 func (m *MessageResponse) MarshalMethod() MarshalMethodType {

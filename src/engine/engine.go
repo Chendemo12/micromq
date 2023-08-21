@@ -221,7 +221,14 @@ func (e *Engine) flowToHookHandler(frame *proto.TransferFrame, con transfer.Conn
 
 	// 不需要回复响应, 不再构建帧消息
 	if !args.ReplyClient() {
-		return args.NoReplyReason()
+		return ErrNoNeedToReply
+	}
+
+	// 业务处理错误, 需要返回错误响应
+	if err := args.StopError(); err != nil {
+		e.Logger().Warn(fmt.Sprintf(
+			"<frame:%s> processing complete, but err: %v", frame.MessageText(), err,
+		))
 	}
 
 	// 构建返回值
@@ -242,16 +249,9 @@ func (e *Engine) distribute(frame *proto.TransferFrame, con transfer.Conn) {
 		err = e.EventHandler().OnNotImplementMessageType(frame, con)
 	}
 
-	// 输出日志
-	if err != nil {
-		if errors.Is(err, ErrNoNeedToReply) { // 设置了不返回数据
-			return
-		} else {
-			// 业务处理错误, 需要返回错误响应
-			e.Logger().Warn(fmt.Sprintf(
-				"<frame:%s> processing complete, but err: %v", frame.MessageText(), err,
-			))
-		}
+	// 设置了不返回数据
+	if err != nil && errors.Is(err, ErrNoNeedToReply) {
+		needResp = false
 	}
 
 	if !needResp { // 依据定义此消息不需要有响应
@@ -289,6 +289,7 @@ func (e *EPool) getArgs(frame *proto.TransferFrame, con transfer.Conn) *ChainArg
 
 	// 响应可以不写给客户端，但是对象必须初始化
 	resp := e.mResp.Get().(*proto.MessageResponse)
+	resp.Type = proto.MessageRespType
 	resp.Status = proto.AcceptedStatus
 	resp.Offset = 0
 	resp.ReceiveTime = time.Now().Unix()

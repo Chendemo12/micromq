@@ -82,21 +82,11 @@ func (client *Producer) sendToServer() {
 				Value: pm.Value,
 			}
 
-			//err := proto.FrameCombine[*proto.PMessage](
-			//	frame, []*proto.PMessage{serverPM}, client.Crypto().Encrypt,
-			//)
-
-			// 加密消息帧
-			err := frame.BuildFrom(serverPM, client.Crypto().Encrypt)
-			if err == nil {
-				_, _ = frame.WriteTo(client.broker.link)
-				go func() { // 异步发送消息
-					err2 := client.broker.link.Drain()
-					if err2 != nil {
-						client.Logger().Warn("send message to server failed: ", err2)
-					}
-				}()
+			err := client.broker.Send(frame, serverPM)
+			if err != nil {
+				client.Logger().Warn("send message to server failed: ", err)
 			}
+
 			framePool.Put(frame) // release
 			hmPool.PutPM(pm)
 		}
@@ -130,6 +120,13 @@ func (client *Producer) HeartbeatInterval() time.Duration {
 func (client *Producer) Logger() logger.Iface { return client.broker.Logger() }
 
 func (client *Producer) Done() <-chan struct{} { return client.broker.Done() }
+
+// SetCrypto 设置消息加密器
+func (client *Producer) SetCrypto(crypto proto.Crypto) *Producer {
+	client.broker.conf.Crypto = crypto
+
+	return client
+}
 
 // Crypto 全局加密器
 func (client *Producer) Crypto() proto.Crypto { return client.broker.conf.Crypto }
@@ -180,6 +177,7 @@ func (client *Producer) Send(fn func(record *ProducerMessage) error) error {
 }
 
 func (client *Producer) Start() error {
+	client.broker.init()
 	err := client.broker.link.Connect()
 	if err != nil {
 		// 连接服务器失败
@@ -223,6 +221,7 @@ func NewProducer(conf Config, handlers ...ProducerHandler) *Producer {
 		PCtx:   conf.PCtx,
 		Logger: conf.Logger,
 		Token:  proto.CalcSHA(conf.Token),
+		Crypto: conf.Crypto,
 	}
 	c.clean()
 
@@ -245,7 +244,6 @@ func NewProducer(conf Config, handlers ...ProducerHandler) *Producer {
 		messageHandler: con.distribute,
 	}
 
-	con.broker.init()
 	con.broker.SetTransfer("tcp") // TODO: 目前仅支持TCP
 	con.broker.SetRegisterMessage(&proto.RegisterMessage{})
 
