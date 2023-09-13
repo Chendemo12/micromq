@@ -24,6 +24,7 @@ var (
 	ErrConsumerUnconnected  = errors.New("consumer unconnected")
 	ErrProducerUnregistered = errors.New("producer unregistered")
 	ErrProducerUnconnected  = errors.New("producer unconnected")
+	ErrTokenIncorrect       = errors.New("token incorrect")
 )
 
 const (

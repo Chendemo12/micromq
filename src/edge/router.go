@@ -25,7 +25,7 @@ func NewApp(conf *fastapi.Config, broker *engine.Engine) *fastapi.FastApi {
 
 // Router edge路由组
 func Router() *fastapi.Router {
-	var router = fastapi.APIRouter("/edge", []string{"EDGE"})
+	var router = fastapi.APIRouter("/api/edge", []string{"EDGE"})
 
 	{
 		router.Post("/product", PostProducerMessage, fastapi.Option{
