@@ -48,7 +48,7 @@ func GetMessageResponseStatusText(status MessageResponseStatus) string {
 	case TokenIncorrectStatus:
 		return "TokenIncorrect"
 	case ReRegisterStatus:
-		return "Let Re-Register"
+		return "Let-ReRegister"
 	}
 
 	return "Refused"
@@ -56,6 +56,6 @@ func GetMessageResponseStatusText(status MessageResponseStatus) string {
 
 var (
 	ErrMethodNotImplemented   = errors.New("method not implemented")
-	ErrMessageNotFull         = errors.New("Message is not full")
+	ErrMessageNotFull         = errors.New("message is not full")
 	ErrMessageSplitNotAllowed = errors.New("split is not allowed")
 )

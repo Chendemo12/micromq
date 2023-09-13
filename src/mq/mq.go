@@ -5,6 +5,7 @@ import (
 	"github.com/Chendemo12/fastapi"
 	"github.com/Chendemo12/fastapi-tool/logger"
 	"github.com/Chendemo12/functools/python"
+	"github.com/Chendemo12/micromq/src/edge"
 	"github.com/Chendemo12/micromq/src/engine"
 	"github.com/Chendemo12/micromq/src/proto"
 	"github.com/Chendemo12/micromq/src/transfer"
@@ -31,6 +32,29 @@ func (m *MQ) initBroker() *MQ {
 	m.broker = engine.New(*m.conf.Broker)
 	m.broker.ReplaceTransfer(m.transfer)
 	m.broker.SetEventHandler(m.conf.Broker.EventHandler)
+
+	return m
+}
+
+func (m *MQ) initHttp() *MQ {
+	m.faster = edge.NewApp(&fastapi.Config{
+		Title:                   m.conf.AppName,
+		Version:                 m.conf.Version,
+		Description:             m.conf.AppName + " Api Service",
+		Logger:                  m.logger,
+		Debug:                   m.conf.Debug,
+		UserSvc:                 m,
+		ShutdownTimeout:         5,
+		DisableSwagAutoCreate:   !m.conf.Debug,
+		EnableDumpPID:           m.conf.Debug,
+		DisableResponseValidate: true,
+		DisableRequestValidate:  false,
+		DisableBaseRoutes:       true,
+	}, m.broker)
+
+	if python.Any(m.conf.EdgeEnabled, m.conf.Debug) {
+		m.faster.IncludeRouter(edge.Router())
+	}
 
 	return m
 }
@@ -80,7 +104,7 @@ func (m *MQ) Serve() {
 	}()
 
 	m.initHttp()
-	m.faster.Run(m.conf.HttpHost, m.conf.HttpPort)
+	m.faster.Run(m.conf.EdgeHttpHost, m.conf.EdgeHttpPort)
 }
 
 func (m *MQ) Stop() {
@@ -91,20 +115,20 @@ func (m *MQ) Stop() {
 
 func New(cs ...Config) *MQ {
 	conf := &Config{
-		AppName:     defaultConf.AppName,
-		Version:     "v1.0.0",
-		Debug:       false,
-		HttpHost:    defaultConf.HttpHost,
-		HttpPort:    defaultConf.HttpPort,
-		EdgeEnabled: true,
-		Broker:      defaultConf.Broker,
+		AppName:      defaultConf.AppName,
+		Version:      "v1.0.0",
+		Debug:        false,
+		EdgeHttpHost: defaultConf.EdgeHttpHost,
+		EdgeHttpPort: defaultConf.EdgeHttpPort,
+		EdgeEnabled:  true,
+		Broker:       defaultConf.Broker,
 	}
 
 	if len(cs) > 0 {
 		conf.AppName = python.GetS(cs[0].AppName, conf.AppName)
 		conf.Version = python.GetS(cs[0].Version, conf.Version)
-		conf.HttpHost = python.GetS(cs[0].HttpHost, conf.HttpHost)
-		conf.HttpPort = python.GetS(cs[0].HttpPort, conf.HttpPort)
+		conf.EdgeHttpHost = python.GetS(cs[0].EdgeHttpHost, conf.EdgeHttpHost)
+		conf.EdgeHttpPort = python.GetS(cs[0].EdgeHttpPort, conf.EdgeHttpPort)
 		conf.Debug = cs[0].Debug
 		conf.Broker.Host = cs[0].Broker.Host
 		conf.Broker.Port = cs[0].Broker.Port

@@ -12,10 +12,11 @@ services:
       - BROKER_HEARTBEAT_TIMEOUT=100
       - BROKER_MESSAGE_ENCRYPT=true
       - BROKER_MESSAGE_ENCRYPT_OPTION=TOKEN
-      - HTTP_LISTEN_PORT=7280
+      - EDGE_LISTEN_PORT=7280
 
     ports:
       - "7270:7270"
+      - "7280:7280"
 
     env_file:
       - .env

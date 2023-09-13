@@ -25,7 +25,8 @@ func main() {
 	// 消息加密方案, 目前仅支持基于 Token 的加密
 	msgEncryptPlan := environ.GetString("BROKER_MESSAGE_ENCRYPT_OPTION", "TOKEN")
 
-	conf.HttpPort = environ.GetString("HTTP_LISTEN_PORT", "7280")
+	conf.EdgeHttpPort = environ.GetString("EDGE_LISTEN_PORT", "7280")
+	conf.EdgeEnabled = environ.GetBool("EDGE_ENABLED", false)
 
 	zapConf := &zaplog.Config{
 		Filename:   conf.AppName,
