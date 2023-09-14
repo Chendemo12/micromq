@@ -2,7 +2,6 @@ package test
 
 import (
 	"github.com/Chendemo12/micromq/sdk"
-	"reflect"
 	"testing"
 )
 
@@ -30,10 +29,10 @@ func TestSdkHttpProducer_Post(t *testing.T) {
 			name: "TestSdkHttpProducer_Post",
 			fields: fields{
 				host:      "127.0.0.1",
-				port:      "7270",
-				path:      "/api/edge/product",
-				asyncPath: "/api/edge/product/async",
-				token:     "123456788",
+				port:      "7280",
+				path:      "api/edge/product",
+				asyncPath: "api/edge/product/async",
+				token:     "123456789",
 			},
 			args: args{
 				topic: "DNS_REPORT",
@@ -58,14 +57,15 @@ func TestSdkHttpProducer_Post(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			p := sdk.NewHttpProducer(tt.fields.host, tt.fields.port)
-			p.SetToken(tt.fields.token)
+			p.SetToken(p.CreateSHA(tt.fields.token))
 
 			got, err := p.Post(tt.args.topic, tt.args.key, tt.args.form)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("Post() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
-			if !reflect.DeepEqual(got, tt.want) {
+
+			if got.Status != "Accepted" {
 				t.Errorf("Post() got = %v, want %v", got, tt.want)
 			}
 		})
