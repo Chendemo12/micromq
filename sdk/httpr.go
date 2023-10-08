@@ -2,6 +2,7 @@ package sdk
 
 import (
 	"errors"
+	"fmt"
 	"github.com/Chendemo12/fastapi-tool/helper"
 	"github.com/Chendemo12/functools/httpc"
 	"github.com/Chendemo12/micromq/src/proto"
@@ -31,7 +32,14 @@ type ProducerForm struct {
 	Token string `json:"token,omitempty" description:"认证密钥"`
 }
 
-func (m *ProducerForm) IsEncrypt() bool { return m.Topic != "" }
+func (m ProducerForm) String() string {
+	// "<ProducerForm> on [ T::DNS_UPDATE | K::2023-07-22T12:23:48.767 ] with 200 bytes of payload"
+	return fmt.Sprintf(
+		"<ProducerForm> on [ T::%s | K::%s ] with %d bytes of payload",
+		m.Topic, m.Key, len(m.Value),
+	)
+}
+func (m ProducerForm) IsEncrypt() bool { return m.Topic != "" }
 
 // ProductResponse 消息返回值; 仅当 status=Accepted 时才认为服务器接受了请求并正确的处理了消息
 type ProductResponse struct {
@@ -41,6 +49,11 @@ type ProductResponse struct {
 	Message      string `json:"message" description:"额外的消息描述"`
 }
 
+func (m ProductResponse) String() string {
+	return fmt.Sprintf(
+		"<ProductResponse> with status: %s | %d", m.Status, m.Offset,
+	)
+}
 func (m ProductResponse) Error() error {
 	switch m.Status {
 	case "UnmarshalFailed":
@@ -125,6 +138,7 @@ func (p *HttpProducer) Send(topic, key string, value []byte) (*ProductResponse, 
 	var content []byte
 	var err error
 
+	// HTTP传输的数据必须进行加密
 	// 加密消息体, 230914目前实际仅支持token一种加密方式
 	if p.token != "" {
 		content, err = p.crypto.Encrypt(value)

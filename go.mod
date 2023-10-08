@@ -3,9 +3,9 @@ module github.com/Chendemo12/micromq
 go 1.20
 
 require (
-	github.com/Chendemo12/fastapi v0.1.5
-	github.com/Chendemo12/fastapi-tool v0.1.0
-	github.com/Chendemo12/functools v0.2.1
+	github.com/Chendemo12/fastapi v0.1.6
+	github.com/Chendemo12/fastapi-tool v0.1.1
+	github.com/Chendemo12/functools v0.2.2
 )
 
 require (
