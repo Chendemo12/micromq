@@ -20,7 +20,7 @@ func StatRouter() *fastapi.Router {
 			ResponseModel: List(&ConsumerStatistic{}),
 		})
 
-		router.Get("/topic/names", getTopicsName, opt{
+		router.Get("/topic", getTopicsName, opt{
 			Summary:       "获取Broker内的topic名称",
 			ResponseModel: fastapi.Strings,
 		})
