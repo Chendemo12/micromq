@@ -1,0 +1,16 @@
+#app {
+    height: 100vh;
+    width: 100%;
+    min-width: 750px;
+    max-width: 2250px;
+
+    margin: 0 auto;
+    position: absolute;
+
+    font-weight: normal;
+    font-family: sans-serif, Arial, monospace, PingFang-SC-Regular, Helvetica, "Microsoft Yahei", 微软雅黑,
+    Avenir, Helvetica;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-align: left;
+}
