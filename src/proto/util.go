@@ -96,6 +96,17 @@ func (q *Queue) PopLeft() any {
 	return element.Value
 }
 
+// Right 获取最右端/最新的元素
+func (q *Queue) Right() any {
+	//q.mu.Lock()
+	//defer q.mu.Unlock()
+
+	return q.list.Back().Value
+}
+
+// Left 获取最左端/最旧的元素
+func (q *Queue) Left() any { return q.list.Front().Value }
+
 // ----------------------------------------------------------------------------
 
 // JsonMessageParseFrom 从reader解析消息，此操作不够优化，应考虑使用 parse 方法

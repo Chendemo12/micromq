@@ -10,13 +10,21 @@ import (
 var cpmp = proto.NewCPMPool()
 var framePool = proto.NewFramePool()
 
+type HistoryRecordStatus string
+
+const (
+	BuildFailed HistoryRecordStatus = ""
+)
+
 type HistoryRecord struct {
+	frame       *proto.TransferFrame //
 	Topic       []byte               // 历史记录所属的topic
+	Key         []byte               //
+	Value       []byte               //
+	Offset      uint64               // 历史记录所属的偏移量
 	MessageType proto.MessageType    // CM协议类型,以此来反序列化
-	Offset      []byte               // 历史记录所属的偏移量
-	Frame       *proto.TransferFrame //
-	Stream      []byte               // 保留消息帧的二进制序列
 	Time        int64                // 历史记录创建时间戳,而非CM被创建的事件戳
+	Error       string               //
 }
 
 type Topic struct {
@@ -41,9 +49,8 @@ func (t *Topic) refreshOffset() uint64 {
 // 当一个消息发送给所有消费者后需要处理的事件
 func (t *Topic) onMessageConsumed(record *HistoryRecord) {
 	// 缓存帧序列数据
-	record.Stream = record.Frame.Build()
-	framePool.Put(record.Frame)
-	record.Frame = nil
+	framePool.Put(record.frame)
+	record.frame = nil
 
 	// 添加到历史记录
 	t.historyRecords.Append(record)
@@ -63,7 +70,7 @@ func (t *Topic) sendAndWait(record *HistoryRecord) {
 				defer wg.Done()
 
 				c.mu.Lock() // 保证线程安全
-				_, _ = record.Frame.WriteTo(c.Conn)
+				_, _ = record.frame.WriteTo(c.Conn)
 				_ = c.Conn.Drain()
 				c.mu.Unlock()
 			}()
@@ -80,6 +87,18 @@ func (t *Topic) consume() {
 	t.historyRecords = proto.NewQueue(t.HistorySize)
 
 	for cm := range t.queue {
+		record := &HistoryRecord{
+			Topic:       t.Name,
+			Offset:      binary.BigEndian.Uint64(cm.Offset),
+			MessageType: cm.MessageType(),
+			Time:        time.Now().Unix(),
+			frame:       nil,
+		}
+		record.Key = make([]byte, len(cm.PM.Key))
+		record.Value = make([]byte, len(cm.PM.Value))
+		copy(record.Key, cm.PM.Key)
+		copy(record.Value, cm.PM.Value)
+
 		frame := framePool.Get()
 		// TODO: 实现多个消息压缩为帧
 		//err := proto.FrameCombine[*proto.CMessage](frame, []*proto.CMessage{cm})
@@ -87,16 +106,11 @@ func (t *Topic) consume() {
 		cpmp.PutCM(cm)
 
 		if err != nil { // 消息构建失败, 增加日志记录
+			record.Error = err.Error()
 			continue
 		}
 
-		record := &HistoryRecord{
-			Topic:       t.Name,
-			Offset:      cm.Offset,
-			MessageType: cm.MessageType(),
-			Frame:       frame,
-			Time:        time.Now().Unix(),
-		}
+		record.frame = frame
 
 		// cm:
 		//	1. Topic.Publisher 创建, 并绑定pm
@@ -107,8 +121,8 @@ func (t *Topic) consume() {
 	}
 }
 
-// IterConsumer 逐个迭代现有消费者
-func (t *Topic) IterConsumer(fn func(c *Consumer)) {
+// RangeConsumer 逐个迭代内部消费者
+func (t *Topic) RangeConsumer(fn func(c *Consumer)) {
 	t.consumers.Range(func(key, value any) bool {
 		c, ok := value.(*Consumer)
 		if ok {
@@ -158,6 +172,16 @@ func (t *Topic) SetOnConsumed(onConsumed func(record *HistoryRecord)) *Topic {
 func (t *Topic) SetCrypto(crypto proto.Crypto) *Topic {
 	t.crypto = crypto
 	return t
+}
+
+// LatestMessage 最新的消息记录
+func (t *Topic) LatestMessage() *HistoryRecord {
+	v := t.historyRecords.Right()
+	r, ok := v.(*HistoryRecord)
+	if !ok {
+		return nil
+	}
+	return r
 }
 
 func NewTopic(name []byte, bufferSize, historySize int) *Topic {
