@@ -8,6 +8,7 @@ import (
 	"github.com/Chendemo12/micromq/src/engine"
 	"github.com/Chendemo12/micromq/src/proto"
 	"github.com/Chendemo12/micromq/src/transfer"
+	"github.com/gofiber/fiber/v2"
 	"os"
 )
 
@@ -163,5 +164,20 @@ func newEdge(conf *fastapi.Config) *fastapi.FastApi {
 	conf.DisableResponseValidate = true
 	conf.EnableMultipleProcess = false
 
-	return fastapi.New(*conf)
+	app := fastapi.New(*conf)
+	// Enable CORS
+	app.Use(func(c *fiber.Ctx) error {
+		if c.Method() == fiber.MethodOptions {
+			c.Set("Access-Control-Allow-Origin", "*")
+			c.Set("Access-Control-Allow-Headers", "*")
+			c.Set("Access-Control-Allow-Credentials", "true")
+			c.Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS,DELETE,PATCH")
+
+			c.Status(fiber.StatusOK)
+			return nil
+		}
+		return c.Next()
+	})
+
+	return app
 }
