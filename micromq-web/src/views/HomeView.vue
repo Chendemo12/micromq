@@ -10,7 +10,7 @@ import Footer from "@/components/Footer.vue";
     <el-container style="height: 100%">
       <el-header>
         <nav>
-          <BaseBar>Clipboard</BaseBar>
+          <BaseBar>MICROMQ</BaseBar>
         </nav>
       </el-header>
 

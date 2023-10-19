@@ -143,7 +143,7 @@ const showTextBadge = (): boolean => {
   return CurrentClipboard.kind.value === "text"
 }
 
-onMounted(() => setInterval(fetchClipboard, 10000))
+// onMounted(() => setInterval(fetchClipboard, 10000))
 
 fetchClipboard()// 进入页面即请求一次数据
 </script>
