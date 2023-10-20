@@ -1,5 +1,5 @@
 <script lang="ts" setup>
-import {FolderOpened, List, Menu as IconMenu, Setting,} from '@element-plus/icons-vue'
+import {Histogram, UserFilled} from '@element-plus/icons-vue'
 </script>
 
 <template>
@@ -12,37 +12,16 @@ import {FolderOpened, List, Menu as IconMenu, Setting,} from '@element-plus/icon
       >
         <el-menu-item index="content">
           <el-icon>
-            <icon-menu/>
+            <Histogram/>
           </el-icon>
-          <span>当前内容</span>
+          <span>主题</span>
         </el-menu-item>
 
-        <el-sub-menu index="">
-          <template #title>
-            <el-icon>
-              <FolderOpened/>
-            </el-icon>
-            <span>历史记录</span>
-          </template>
-          <el-menu-item index="history-text">
-            <el-icon>
-              <List/>
-            </el-icon>
-            <span>文本</span>
-          </el-menu-item>
-          <el-menu-item index="history-image">
-            <el-icon>
-              <Picture/>
-            </el-icon>
-            <span>图片</span>
-          </el-menu-item>
-        </el-sub-menu>
-
-        <el-menu-item index="settings">
+        <el-menu-item index="consumer">
           <el-icon>
-            <setting/>
+            <UserFilled/>
           </el-icon>
-          <span>配置修改</span>
+          <span>消费者</span>
         </el-menu-item>
       </el-menu>
     </el-col>

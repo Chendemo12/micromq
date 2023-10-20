@@ -1,17 +1,19 @@
 import {createRouter, createWebHistory} from 'vue-router'
 import HomeView from '../views/HomeView.vue'
+import SettingsView from "@/views/SettingsView.vue";
 
 const router = createRouter({
     history: createWebHistory(import.meta.env.BASE_URL),
     routes: [
         {
-            path: "/",
-            redirect: "/content",
-        },
-        {
             path: "/home",
             redirect: "/",
         },
+        {
+            path: "/",
+            redirect: "/content"
+        },
+        // routes
         {
             path: '/',
             name: 'home',
@@ -24,39 +26,30 @@ const router = createRouter({
                     name: "Content",
                     path: "content",
                     props: true,
-                    component: () => import("@/components/home/Content.vue"),
+                    component: () => import("@/components/home/Topic.vue"),
                     meta: {
-                        title: "内容",
+                        title: "主题",
                     },
                 },
                 {
-                    name: "TextHistory",
-                    path: "history-text",
+                    name: "Consumer",
+                    path: "consumer",
                     props: true,
-                    component: () => import("@/components/home/TextHistory.vue"),
+                    component: () => import("@/components/home/Consumer.vue"),
                     meta: {
-                        title: "文本记录",
+                        title: "消费者",
                     },
                 },
-                {
-                    name: "ImageHistory",
-                    path: "history-image",
-                    props: true,
-                    component: () => import("@/components/home/ImageHistory.vue"),
-                    meta: {
-                        title: "图片记录",
-                    },
-                },
-                {
-                    name: "Settings",
-                    path: "settings",
-                    props: true,
-                    component: () => import("@/components/home/Settings.vue"),
-                    meta: {
-                        title: "设置",
-                    },
-                }
             ]
+        },
+        {
+            path: '/settings',
+            name: 'settings',
+            component: SettingsView,
+            meta: {
+                title: "设置",
+            },
+            children: []
         },
     ]
 })

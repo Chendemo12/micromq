@@ -3,9 +3,7 @@
 </script>
 
 <template>
-  <div>
-    <h1>Image History</h1>
-  </div>
+  <h1>Consumer</h1>
 </template>
 
 <style scoped>
