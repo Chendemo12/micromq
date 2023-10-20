@@ -7,7 +7,7 @@ import (
 	"github.com/Chendemo12/micromq/src/proto"
 )
 
-const VERSION = "v0.3.6"
+const VERSION = "v0.3.7"
 const NAME = "micromq"
 
 func main() {
