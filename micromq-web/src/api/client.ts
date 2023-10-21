@@ -3,8 +3,8 @@ export const Urls = {
     getVersion: "/api/base/version",
     getTopicOffset: "/api/statistic/topic/offset",
     getTopicConsumer: "/api/statistic/topic/consumers",
-    getProducer: "/api/statistic/producers",
-    getConsumer: "/api/statistic/consumers",
-    getTopic: "/api/statistic/topic",
+    getBrokerProducer: "/api/statistic/producers",
+    getBrokerConsumer: "/api/statistic/consumers",
+    getBrokerTopic: "/api/statistic/topic",
     getTopicRecord: "/api/statistic/topic/record",
 };
