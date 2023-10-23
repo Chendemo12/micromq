@@ -7,10 +7,13 @@ import (
 	"github.com/Chendemo12/micromq/src/proto"
 )
 
+const VERSION = "v0.3.7"
+const NAME = "micromq"
+
 func main() {
 	conf := mq.DefaultConf()
 
-	conf.AppName = environ.GetString("APP_NAME", "micromq")
+	conf.AppName = environ.GetString("APP_NAME", NAME)
 	conf.Version = VERSION
 	conf.Debug = environ.GetBool("DEBUG", false)
 

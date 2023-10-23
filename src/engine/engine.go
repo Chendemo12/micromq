@@ -56,6 +56,7 @@ type Engine struct {
 	transfer             transfer.Transfer
 	topics               *sync.Map
 	monitor              *Monitor
+	stat                 *Statistic
 	scheduler            *cronjob.Scheduler
 	ePool                *EPool                             // 池化各种数据
 	tokenCrypto          *proto.TokenCrypto                 // 用于注册消息加解密
@@ -103,6 +104,7 @@ func (e *Engine) beforeServe() *Engine {
 
 	// 监视器
 	e.monitor = &Monitor{broker: e}
+	e.stat = &Statistic{broker: e}
 	e.scheduler = cronjob.NewScheduler(e.Ctx(), e.Logger())
 	e.scheduler.AddCronjob(e.monitor)
 	// 初始化池

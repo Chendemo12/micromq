@@ -1,42 +1,28 @@
-package edge
+package mq
 
 import (
 	"fmt"
 	"github.com/Chendemo12/fastapi"
 	"github.com/Chendemo12/fastapi-tool/helper"
-	"github.com/Chendemo12/micromq/src/engine"
 	"github.com/Chendemo12/micromq/src/proto"
 	"time"
 )
 
-var Broker *engine.Engine
-var Crypto proto.Crypto = &proto.NoCrypto{}
+type opt = fastapi.Opt
 
-func NewApp(conf *fastapi.Config, broker *engine.Engine) *fastapi.FastApi {
-	if broker != nil {
-		Broker = broker
-		Crypto = broker.Crypto()
-	}
-
-	conf.DisableResponseValidate = true
-	conf.EnableMultipleProcess = false
-
-	return fastapi.New(*conf)
-}
-
-// Router edge路由组
-func Router() *fastapi.Router {
+// EdgeRouter edge路由组
+func EdgeRouter() *fastapi.Router {
 	var router = fastapi.APIRouter("/api/edge", []string{"EDGE"})
 
 	{
-		router.Post("/product", PostProducerMessage, fastapi.Option{
+		router.Post("/product", PostProducerMessage, opt{
 			Summary:       "发送一个生产者消息",
 			Description:   "阻塞式发送生产者消息，此接口会在消息成功发送给消费者后返回",
 			RequestModel:  &ProducerForm{},
 			ResponseModel: &ProductResponse{},
 		})
 
-		router.Post("/product/async", AsyncPostProducerMessage, fastapi.Option{
+		router.Post("/product/async", AsyncPostProducerMessage, opt{
 			Summary:       "异步发送一个生产者消息",
 			Description:   "非阻塞式发送生产者消息，服务端会在消息解析成功后立刻返回结果，不保证消息已发送给消费者",
 			RequestModel:  &ProducerForm{},
@@ -116,7 +102,7 @@ func toPMessage(c *fastapi.Context) (*proto.PMessage, *fastapi.Response) {
 	if !form.IsEncrypt() {
 		pm.Value = decode
 	} else {
-		if !Broker.IsTokenCorrect(form.Token) {
+		if !mq.broker.IsTokenCorrect(form.Token) {
 			c.Logger().Info(c.EngineCtx().IP(), "has wrong token")
 			return nil, c.OKResponse(&ProductResponse{
 				Status:       proto.GetMessageResponseStatusText(proto.TokenIncorrectStatus),
@@ -126,7 +112,7 @@ func toPMessage(c *fastapi.Context) (*proto.PMessage, *fastapi.Response) {
 			})
 		} else {
 			// 如果设置了密钥，HTTP传输的数据必须进行加密
-			_bytes, _err := Crypto.Decrypt(decode)
+			_bytes, _err := mq.broker.Crypto().Decrypt(decode)
 			if _err != nil {
 				c.Logger().Warn(c.EngineCtx().IP(), "has correct token, but value decrypt failed: ", _err)
 				return nil, c.OKResponse(&ProductResponse{
@@ -155,7 +141,7 @@ func PostProducerMessage(c *fastapi.Context) *fastapi.Response {
 
 	respForm := &ProductResponse{}
 	respForm.Status = proto.GetMessageResponseStatusText(proto.AcceptedStatus)
-	respForm.Offset = Broker.Publisher(pm)
+	respForm.Offset = mq.broker.Publisher(pm)
 	respForm.ResponseTime = time.Now().Unix()
 
 	c.Logger().Debug(fmt.Sprintf("return: %s, to '%s' ", respForm, c.EngineCtx().IP()))

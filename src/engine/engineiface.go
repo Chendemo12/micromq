@@ -19,6 +19,8 @@ func (e *Engine) Logger() logger.Iface { return e.conf.Logger }
 
 func (e *Engine) EventHandler() EventHandler { return e.conf.EventHandler }
 
+func (e *Engine) Stat() *Statistic { return e.stat }
+
 // ReplaceTransfer 替换传输层实现
 func (e *Engine) ReplaceTransfer(transfer transfer.Transfer) *Engine {
 	if transfer != nil {
@@ -72,9 +74,12 @@ func (e *Engine) QueryProducer(addr string) (*Producer, bool) {
 	return producer, producer != nil
 }
 
-// RangeConsumer if false returned, for-loop will stop
+// RangeConsumer 遍历连接的消费者, if false returned, for-loop will stop
 func (e *Engine) RangeConsumer(fn func(c *Consumer) bool) {
 	for i := 0; i < e.conf.MaxOpenConn; i++ {
+		if e.consumers[i].IsFree() {
+			continue
+		}
 		// cannot be nil
 		if !fn(e.consumers[i]) {
 			return
@@ -82,9 +87,12 @@ func (e *Engine) RangeConsumer(fn func(c *Consumer) bool) {
 	}
 }
 
-// RangeProducer if false returned, for-loop will stop
+// RangeProducer 遍历连接的生产者, if false returned, for-loop will stop
 func (e *Engine) RangeProducer(fn func(p *Producer) bool) {
 	for i := 0; i < e.conf.MaxOpenConn; i++ {
+		if e.producers[i].IsFree() {
+			continue
+		}
 		if !fn(e.producers[i]) {
 			return
 		}

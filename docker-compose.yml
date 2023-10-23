@@ -5,18 +5,18 @@ services:
       context: .
       dockerfile: Dockerfile
     environment:
-      - DEBUG=1
+      - DEBUG=${DEBUG}
       - BROKER_LISTEN_PORT=7270
       - BROKER_MAX_OPEN_SIZE=20
       - BROKER_TOKEN=${BROKER_TOKEN}
       - BROKER_HEARTBEAT_TIMEOUT=100
-      - BROKER_MESSAGE_ENCRYPT=true
-      - BROKER_MESSAGE_ENCRYPT_OPTION=TOKEN
+      - BROKER_MESSAGE_ENCRYPT=${BROKER_MESSAGE_ENCRYPT}
+      - BROKER_MESSAGE_ENCRYPT_OPTION=${BROKER_MESSAGE_ENCRYPT_OPTION}
       - EDGE_LISTEN_PORT=7280
 
     ports:
       - "7270:7270"
-      - "7280:7280"
+      - "7271:7280"
 
     env_file:
       - .env

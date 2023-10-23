@@ -5,12 +5,14 @@ import (
 	"github.com/Chendemo12/fastapi"
 	"github.com/Chendemo12/fastapi-tool/logger"
 	"github.com/Chendemo12/functools/python"
-	"github.com/Chendemo12/micromq/src/edge"
 	"github.com/Chendemo12/micromq/src/engine"
 	"github.com/Chendemo12/micromq/src/proto"
 	"github.com/Chendemo12/micromq/src/transfer"
+	"github.com/gofiber/fiber/v2"
 	"os"
 )
+
+var mq *MQ
 
 type MQ struct {
 	conf     *Config
@@ -37,7 +39,7 @@ func (m *MQ) initBroker() *MQ {
 }
 
 func (m *MQ) initHttp() *MQ {
-	m.faster = edge.NewApp(&fastapi.Config{
+	m.faster = newEdge(&fastapi.Config{
 		Title:                   m.conf.AppName,
 		Version:                 m.conf.Version,
 		Description:             m.conf.AppName + " Api Service",
@@ -45,15 +47,19 @@ func (m *MQ) initHttp() *MQ {
 		Debug:                   m.conf.Debug,
 		UserSvc:                 m,
 		ShutdownTimeout:         5,
-		DisableSwagAutoCreate:   !m.conf.Debug,
-		EnableDumpPID:           m.conf.Debug,
-		DisableResponseValidate: true,
+		DisableSwagAutoCreate:   !python.Any(!m.conf.StatisticDisabled, m.conf.Debug),
+		EnableDumpPID:           false,
+		DisableResponseValidate: false,
 		DisableRequestValidate:  false,
-		DisableBaseRoutes:       true,
-	}, m.broker)
+		DisableBaseRoutes:       false,
+	})
 
 	if python.Any(m.conf.EdgeEnabled, m.conf.Debug) {
-		m.faster.IncludeRouter(edge.Router())
+		m.faster.IncludeRouter(EdgeRouter())
+	}
+
+	if python.Any(!m.conf.StatisticDisabled, m.conf.Debug) {
+		m.faster.IncludeRouter(StatRouter())
 	}
 
 	return m
@@ -63,19 +69,25 @@ func (m *MQ) Config() any { return m.conf }
 
 func (m *MQ) Logger() logger.Iface { return m.logger }
 
+// Ctx 获取根context
 func (m *MQ) Ctx() context.Context { return m.ctx }
+
+// Stat 获取统计信息类
+func (m *MQ) Stat() *engine.Statistic { return m.broker.Stat() }
 
 func (m *MQ) SetLogger(logger logger.Iface) *MQ {
 	m.logger = logger
 	return m
 }
 
+// SetCrypto 设置加解密器
 func (m *MQ) SetCrypto(crypto proto.Crypto) *MQ {
 	m.conf.crypto = crypto
 
 	return m
 }
 
+// SetCryptoPlan 修改加密方案
 func (m *MQ) SetCryptoPlan(option string, key ...string) *MQ {
 	m.conf.cryptoPlan = append([]string{option}, key...)
 
@@ -142,8 +154,30 @@ func New(cs ...Config) *MQ {
 		}
 	}
 
-	mq := &MQ{conf: conf}
+	mq = &MQ{conf: conf}
 	mq.ctx, mq.cancel = context.WithCancel(context.Background())
 
 	return mq
+}
+
+func newEdge(conf *fastapi.Config) *fastapi.FastApi {
+	conf.DisableResponseValidate = true
+	conf.EnableMultipleProcess = false
+
+	app := fastapi.New(*conf)
+	// Enable CORS
+	app.Use(func(c *fiber.Ctx) error {
+		c.Set("Access-Control-Allow-Origin", "*")
+		c.Set("Access-Control-Allow-Headers", "*")
+		c.Set("Access-Control-Allow-Credentials", "false")
+		c.Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS,DELETE,PATCH")
+
+		if c.Method() == fiber.MethodOptions {
+			c.Status(fiber.StatusOK)
+			return nil
+		}
+		return c.Next()
+	})
+
+	return app
 }
