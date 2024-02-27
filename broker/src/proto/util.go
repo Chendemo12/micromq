@@ -98,14 +98,28 @@ func (q *Queue) PopLeft() any {
 
 // Right 获取最右端/最新的元素
 func (q *Queue) Right() any {
-	//q.mu.Lock()
-	//defer q.mu.Unlock()
+	q.mu.Lock()
+	defer q.mu.Unlock()
 
-	return q.list.Back().Value
+	element := q.list.Back()
+	if element != nil {
+		return element.Value
+	}
+
+	return nil
 }
 
 // Left 获取最左端/最旧的元素
-func (q *Queue) Left() any { return q.list.Front().Value }
+func (q *Queue) Left() any {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+
+	element := q.list.Front()
+	if element != nil {
+		return element.Value
+	}
+	return nil
+}
 
 // ----------------------------------------------------------------------------
 
