@@ -24,7 +24,7 @@ var defaultConf = Config{
 	AppName:      "micromq",
 	Version:      "1.0.0",
 	EdgeHttpHost: "0.0.0.0",
-	EdgeHttpPort: "7280",
+	EdgeHttpPort: "7271",
 	Broker: &engine.Config{
 		Host:             "0.0.0.0",
 		Port:             "7270",

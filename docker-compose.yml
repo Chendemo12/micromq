@@ -16,7 +16,7 @@ services:
       - "/etc/localtime:/etc/localtime:ro"
     ports:
       - "${BROKER_LISTEN_PORT}:7270"
-      - "${EDGE_LISTEN_PORT}:7280"
+      - "${EDGE_LISTEN_PORT}:7271"
     env_file:
       - .env
 
@@ -33,14 +33,14 @@ services:
 
     restart: always
 
-  micromq-web:
+  web:
     container_name: micromq-web
     build:
       context: ./website
       dockerfile: Dockerfile
     environment:
       - NODE_ENV=production
-      - VITE_API_URL=http://localhost:7280
+      - VITE_API_URL=http://localhost:7271
     env_file:
       - ".env"
     ports:

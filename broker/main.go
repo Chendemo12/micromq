@@ -18,7 +18,7 @@ func main() {
 	conf.Debug = environ.GetBool("DEBUG", false)
 
 	conf.Broker.Host = "0.0.0.0"
-	conf.Broker.Port = environ.GetString("BROKER_LISTEN_PORT", "7270")
+	conf.Broker.Port = environ.GetString("BROKER_CORE_LISTEN_PORT", "7270")
 	conf.Broker.BufferSize = environ.GetInt("BROKER_BUFFER_SIZE", 100)
 	conf.Broker.MaxOpenConn = environ.GetInt("BROKER_MAX_OPEN_SIZE", 50)
 	conf.Broker.HeartbeatTimeout = float64(environ.GetInt("BROKER_HEARTBEAT_TIMEOUT", 60))
@@ -28,7 +28,7 @@ func main() {
 	// 消息加密方案, 目前仅支持基于 Token 的加密
 	msgEncryptPlan := environ.GetString("BROKER_MESSAGE_ENCRYPT_OPTION", "TOKEN")
 
-	conf.EdgeHttpPort = environ.GetString("EDGE_LISTEN_PORT", "7280")
+	conf.EdgeHttpPort = environ.GetString("BROKER_EDGE_LISTEN_PORT", "7271")
 	conf.EdgeEnabled = environ.GetBool("EDGE_ENABLED", false)
 
 	handler := mq.New(conf)

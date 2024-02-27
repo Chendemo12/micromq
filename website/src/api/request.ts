@@ -3,7 +3,7 @@ import {ref} from "vue";
 
 let ApiPrefix = import.meta.env.VITE_API_URL;
 if (ApiPrefix == "") {
-    ApiPrefix = "http://localhost:7280"
+    ApiPrefix = "http://localhost:7271"
 }
 
 // 允许跨域
