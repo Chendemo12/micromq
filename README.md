@@ -46,7 +46,7 @@ BROKER_MAX_OPEN_SIZE=50                 # 允许的最大连接数 default=50, �
 - HTTP-Producer (edge)：同步HTTP生产者，灵感来自MQTT;
 - 低至10M以下的内存占用，启动需要约3M的内存（非专业测试）；
 
-目前尚有不足，但满足基本使用，后期考虑增加`Prometheus-exporter`和`web-api`。
+目前尚有不足，但满足基本使用，后期考虑增加`Prometheus-exporter`。
 
 ## Usage
 
@@ -283,10 +283,11 @@ func run() {
 
 ```json
 
+File failed to load: /extensions/MathZoom.js
 {
   "info": {
     "title": "micromq",
-    "version": "v0.3.5",
+    "version": "v0.3.8",
     "description": "micromq Api Service",
     "contact": {
       "name": "FastApi",
@@ -300,92 +301,68 @@ func run() {
   },
   "components": {
     "schemas": {
-      "edge.ProducerForm": {
-        "title": "ProducerForm",
-        "type": "object",
-        "description": "生产者消息投递表单, 不允许将多个消息编码成一个消息帧; \ntoken若为空则认为不加密; \nvalue是对加密后的消息体进行base64编码后的结果,依据token判断是否需要解密",
-        "required": [],
-        "properties": {
-          "key": {
-            "name": "key",
-            "title": "Key",
-            "type": "string",
-            "required": false,
-            "description": "消息键"
-          },
-          "value": {
-            "name": "value",
-            "title": "Value",
-            "type": "string",
-            "required": false,
-            "description": "base64编码后的消息体"
-          },
-          "token": {
-            "name": "token",
-            "title": "Token",
-            "type": "string",
-            "required": false,
-            "description": "认证密钥"
-          },
-          "topic": {
-            "required": false,
-            "description": "消息主题",
-            "name": "topic",
-            "title": "Topic",
-            "type": "string"
-          }
-        }
+      "ConsumerStatistic_List": {
+        "description": "消费者统计信息",
+        "items": {
+          "$ref": "#/components/schemas/mq.ConsumerStatistic"
+        },
+        "name": "ConsumerStatistic_List",
+        "title": "ConsumerStatistic_List",
+        "type": "array"
       },
-      "edge.ProductResponse": {
-        "title": "ProductResponse",
-        "type": "object",
-        "description": "消息返回值; 仅当 status=Accepted 时才认为服务器接受了请求并正确的处理了消息",
-        "required": [],
+      "TopicConsumerStatistic_List": {
+        "description": "mq.TopicConsumerStatistic",
+        "items": {
+          "$ref": "#/components/schemas/mq.TopicConsumerStatistic"
+        },
+        "name": "TopicConsumerStatistic_List",
+        "title": "TopicConsumerStatistic_List",
+        "type": "array"
+      },
+      "TopicOffsetStatistic_List": {
+        "description": "Topic的消息偏移量信息",
+        "items": {
+          "$ref": "#/components/schemas/mq.TopicOffsetStatistic"
+        },
+        "name": "TopicOffsetStatistic_List",
+        "title": "TopicOffsetStatistic_List",
+        "type": "array"
+      },
+      "TopicRecordStatistic_List": {
+        "description": "mq.TopicRecordStatistic",
+        "items": {
+          "$ref": "#/components/schemas/mq.TopicRecordStatistic"
+        },
+        "name": "TopicRecordStatistic_List",
+        "title": "TopicRecordStatistic_List",
+        "type": "array"
+      },
+      "bool": {
+        "description": "",
+        "name": "bool",
+        "required": true,
+        "title": "bool",
+        "type": "boolean"
+      },
+      "fastapi.HTTPValidationError": {
         "properties": {
-          "message": {
-            "title": "Message",
-            "type": "string",
-            "required": false,
-            "description": "额外的消息描述",
-            "name": "message"
-          },
-          "status": {
-            "name": "status",
-            "title": "Status",
-            "type": "string",
-            "required": false,
-            "description": "消息接收状态",
-            "enum": [
-              "Accepted",
-              "UnmarshalFailed",
-              "TokenIncorrect",
-              "Let-ReRegister",
-              "Refused"
-            ]
-          },
-          "offset": {
-            "description": "消息偏移量",
-            "name": "offset",
-            "title": "Offset",
-            "type": "integer",
-            "required": false
-          },
-          "response_time": {
-            "description": "服务端返回消息时的时间戳",
-            "name": "response_time",
-            "title": "ResponseTime",
-            "type": "integer",
-            "required": false
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/fastapi.ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
           }
-        }
+        },
+        "required": [
+          "detail"
+        ],
+        "title": "HTTPValidationError",
+        "type": "object"
       },
       "fastapi.ValidationError": {
-        "title": "ValidationError",
-        "type": "object",
         "properties": {
           "loc": {
-            "title": "Location",
-            "type": "array",
             "items": {
               "anyOf": [
                 {
@@ -395,7 +372,9 @@ func run() {
                   "type": "integer"
                 }
               ]
-            }
+            },
+            "title": "Location",
+            "type": "array"
           },
           "msg": {
             "title": "Message",
@@ -410,35 +389,234 @@ func run() {
           "loc",
           "msg",
           "type"
-        ]
-      },
-      "fastapi.HTTPValidationError": {
-        "title": "HTTPValidationError",
-        "type": "object",
-        "required": [
-          "detail"
         ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "mq.ConsumerStatistic": {
+        "description": "消费者统计信息",
         "properties": {
-          "detail": {
-            "title": "Detail",
-            "type": "array",
+          "addr": {
+            "description": "连接地址",
+            "name": "addr",
+            "required": false,
+            "title": "Addr",
+            "type": "string"
+          },
+          "topics": {
+            "description": "订阅的主题名列表",
             "items": {
-              "$ref": "#/components/schemas/fastapi.ValidationError"
-            }
+              "type": "string"
+            },
+            "name": "topics",
+            "required": false,
+            "title": "Topics",
+            "type": "array"
           }
-        }
+        },
+        "required": [ ],
+        "title": "ConsumerStatistic",
+        "type": "object"
+      },
+      "mq.ProducerForm": {
+        "description": "生产者消息投递表单, 不允许将多个消息编码成一个消息帧; \ntoken若为空则认为不加密; \nvalue是对加密后的消息体进行base64编码后的结果,依据token判断是否需要解密",
+        "properties": {
+          "key": {
+            "description": "消息键",
+            "name": "key",
+            "required": false,
+            "title": "Key",
+            "type": "string"
+          },
+          "token": {
+            "description": "认证密钥",
+            "name": "token",
+            "required": false,
+            "title": "Token",
+            "type": "string"
+          },
+          "topic": {
+            "description": "消息主题",
+            "name": "topic",
+            "required": false,
+            "title": "Topic",
+            "type": "string"
+          },
+          "value": {
+            "description": "base64编码后的消息体",
+            "name": "value",
+            "required": false,
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [ ],
+        "title": "ProducerForm",
+        "type": "object"
+      },
+      "mq.ProductResponse": {
+        "description": "消息返回值; 仅当 status=Accepted 时才认为服务器接受了请求并正确的处理了消息",
+        "properties": {
+          "message": {
+            "description": "额外的消息描述",
+            "name": "message",
+            "required": false,
+            "title": "Message",
+            "type": "string"
+          },
+          "offset": {
+            "description": "消息偏移量",
+            "name": "offset",
+            "required": false,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "response_time": {
+            "description": "服务端返回消息时的时间戳",
+            "name": "response_time",
+            "required": false,
+            "title": "ResponseTime",
+            "type": "integer"
+          },
+          "status": {
+            "description": "消息接收状态",
+            "enum": [
+              "Accepted",
+              "UnmarshalFailed",
+              "TokenIncorrect",
+              "Let-ReRegister",
+              "Refused"
+            ],
+            "name": "status",
+            "required": false,
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [ ],
+        "title": "ProductResponse",
+        "type": "object"
+      },
+      "mq.TopicConsumerStatistic": {
+        "description": "mq.TopicConsumerStatistic",
+        "properties": {
+          "consumers": {
+            "description": "消费者连接",
+            "items": {
+              "type": "string"
+            },
+            "name": "consumers",
+            "required": false,
+            "title": "Consumers",
+            "type": "array"
+          },
+          "topic": {
+            "description": "名称",
+            "name": "topic",
+            "required": false,
+            "title": "Topic",
+            "type": "string"
+          }
+        },
+        "required": [ ],
+        "title": "TopicConsumerStatistic",
+        "type": "object"
+      },
+      "mq.TopicOffsetStatistic": {
+        "description": "Topic的消息偏移量信息",
+        "properties": {
+          "offset": {
+            "description": "最新的消息偏移量",
+            "name": "offset",
+            "required": false,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "topic": {
+            "description": "名称",
+            "name": "topic",
+            "required": false,
+            "title": "Topic",
+            "type": "string"
+          }
+        },
+        "required": [ ],
+        "title": "TopicOffsetStatistic",
+        "type": "object"
+      },
+      "mq.TopicRecordStatistic": {
+        "description": "mq.TopicRecordStatistic",
+        "properties": {
+          "key": {
+            "description": "Key",
+            "name": "key",
+            "required": false,
+            "title": "Key",
+            "type": "string"
+          },
+          "offset": {
+            "description": "消息偏移量",
+            "name": "offset",
+            "required": false,
+            "title": "Offset",
+            "type": "integer"
+          },
+          "product_time": {
+            "description": "消息接收时间戳",
+            "name": "product_time",
+            "required": false,
+            "title": "ProductTime",
+            "type": "integer"
+          },
+          "topic": {
+            "description": "名称",
+            "name": "topic",
+            "required": false,
+            "title": "Topic",
+            "type": "string"
+          },
+          "value": {
+            "description": "base64编码后的消息体明文",
+            "name": "value",
+            "required": false,
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [ ],
+        "title": "TopicRecordStatistic",
+        "type": "object"
+      },
+      "string": {
+        "description": "字符串类型",
+        "name": "string",
+        "required": true,
+        "title": "string",
+        "type": "string"
+      },
+      "string_List": {
+        "description": "字符串类型",
+        "items": {
+          "type": "string"
+        },
+        "title": "string_List_List",
+        "type": "array"
       }
     }
   },
   "paths": {
-    "/api/edge/product/async": {
-      "post": {
+    "/api/base/debug": {
+      "get": {
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/edge.ProductResponse"
+                  "description": "",
+                  "name": "bool",
+                  "required": true,
+                  "title": "bool",
+                  "type": "boolean"
                 }
               }
             },
@@ -456,20 +634,150 @@ func run() {
           }
         },
         "tags": [
-          "EDGE"
+          "Base"
         ],
-        "summary": "异步发送一个生产者消息",
-        "description": "非阻塞式发送生产者消息，服务端会在消息解析成功后立刻返回结果，不保证消息已发送给消费者",
-        "requestBody": {
-          "content": {
-            "application/json": {
-              "schema": {
-                "$ref": "#/components/schemas/edge.ProducerForm"
+        "summary": "获取调试开关",
+        "description": "获取调试开关"
+      }
+    },
+    "/api/base/description": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "字符串类型",
+                  "name": "string",
+                  "required": true,
+                  "title": "string",
+                  "type": "string"
+                }
               }
-            }
+            },
+            "description": "OK"
           },
-          "required": true
-        }
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/fastapi.ValidationError"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "tags": [
+          "Base"
+        ],
+        "summary": "获取软件描述信息",
+        "description": "获取软件描述信息"
+      }
+    },
+    "/api/base/heartbeat": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "字符串类型",
+                  "name": "string",
+                  "required": true,
+                  "title": "string",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/fastapi.ValidationError"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "tags": [
+          "Base"
+        ],
+        "summary": "心跳检测",
+        "description": "心跳检测"
+      }
+    },
+    "/api/base/title": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "字符串类型",
+                  "name": "string",
+                  "required": true,
+                  "title": "string",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/fastapi.ValidationError"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "tags": [
+          "Base"
+        ],
+        "summary": "获取软件名",
+        "description": "获取软件名"
+      }
+    },
+    "/api/base/version": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "字符串类型",
+                  "name": "string",
+                  "required": true,
+                  "title": "string",
+                  "type": "string"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/fastapi.ValidationError"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "tags": [
+          "Base"
+        ],
+        "summary": "获取软件版本号",
+        "description": "获取软件版本号"
       }
     },
     "/api/edge/product": {
@@ -479,7 +787,7 @@ func run() {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/edge.ProductResponse"
+                  "$ref": "#/components/schemas/mq.ProductResponse"
                 }
               }
             },
@@ -497,7 +805,7 @@ func run() {
           }
         },
         "tags": [
-          "EDGE"
+          "EdgeRouter"
         ],
         "summary": "发送一个生产者消息",
         "description": "阻塞式发送生产者消息，此接口会在消息成功发送给消费者后返回",
@@ -505,12 +813,273 @@ func run() {
           "content": {
             "application/json": {
               "schema": {
-                "$ref": "#/components/schemas/edge.ProducerForm"
+                "$ref": "#/components/schemas/mq.ProducerForm"
               }
             }
           },
           "required": true
         }
+      }
+    },
+    "/api/edge/product/async": {
+      "post": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/mq.ProductResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/fastapi.ValidationError"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "tags": [
+          "EdgeRouter"
+        ],
+        "summary": "异步发送一个生产者消息",
+        "description": "非阻塞式发送生产者消息，服务端会在消息解析成功后立刻返回结果，不保证消息已发送给消费者",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/mq.ProducerForm"
+              }
+            }
+          },
+          "required": true
+        }
+      }
+    },
+    "/api/statistic/consumers": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "消费者统计信息",
+                  "items": {
+                    "$ref": "#/components/schemas/mq.ConsumerStatistic"
+                  },
+                  "name": "ConsumerStatistic_List",
+                  "title": "ConsumerStatistic_List",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/fastapi.ValidationError"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "tags": [
+          "StatRouter"
+        ],
+        "summary": "GET Consumers",
+        "description": "GET Consumers"
+      }
+    },
+    "/api/statistic/producers": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "字符串类型",
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "string_List_List",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/fastapi.ValidationError"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "tags": [
+          "StatRouter"
+        ],
+        "summary": "获取Broker内的生产者连接",
+        "description": "获取Broker内的生产者连接"
+      }
+    },
+    "/api/statistic/topic": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "字符串类型",
+                  "items": {
+                    "type": "string"
+                  },
+                  "title": "string_List_List",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/fastapi.ValidationError"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "tags": [
+          "StatRouter"
+        ],
+        "summary": "GET Topic",
+        "description": "GET Topic"
+      }
+    },
+    "/api/statistic/topic/consumers": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "mq.TopicConsumerStatistic",
+                  "items": {
+                    "$ref": "#/components/schemas/mq.TopicConsumerStatistic"
+                  },
+                  "name": "TopicConsumerStatistic_List",
+                  "title": "TopicConsumerStatistic_List",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/fastapi.ValidationError"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "tags": [
+          "StatRouter"
+        ],
+        "summary": "GET TopicConsumers",
+        "description": "GET TopicConsumers"
+      }
+    },
+    "/api/statistic/topic/offset": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "Topic的消息偏移量信息",
+                  "items": {
+                    "$ref": "#/components/schemas/mq.TopicOffsetStatistic"
+                  },
+                  "name": "TopicOffsetStatistic_List",
+                  "title": "TopicOffsetStatistic_List",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/fastapi.ValidationError"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "tags": [
+          "StatRouter"
+        ],
+        "summary": "GET TopicOffset",
+        "description": "GET TopicOffset"
+      }
+    },
+    "/api/statistic/topic/record": {
+      "get": {
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "description": "mq.TopicRecordStatistic",
+                  "items": {
+                    "$ref": "#/components/schemas/mq.TopicRecordStatistic"
+                  },
+                  "name": "TopicRecordStatistic_List",
+                  "title": "TopicRecordStatistic_List",
+                  "type": "array"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/fastapi.ValidationError"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          }
+        },
+        "tags": [
+          "StatRouter"
+        ],
+        "summary": "GET TopicRecord",
+        "description": "GET TopicRecord"
       }
     }
   },
