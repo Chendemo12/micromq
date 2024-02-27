@@ -4,11 +4,12 @@ import (
 	"context"
 	"github.com/Chendemo12/fastapi"
 	"github.com/Chendemo12/fastapi-tool/logger"
+	"github.com/Chendemo12/fastapi/middleware/fiberWrapper"
+	"github.com/Chendemo12/fastapi/middleware/routers"
 	"github.com/Chendemo12/functools/python"
 	"github.com/Chendemo12/micromq/src/engine"
 	"github.com/Chendemo12/micromq/src/proto"
 	"github.com/Chendemo12/micromq/src/transfer"
-	"github.com/gofiber/fiber/v2"
 	"os"
 )
 
@@ -38,28 +39,33 @@ func (m *MQ) initBroker() *MQ {
 	return m
 }
 
+// 初始化HTTP路由
 func (m *MQ) initHttp() *MQ {
-	m.faster = newEdge(&fastapi.Config{
-		Title:                   m.conf.AppName,
-		Version:                 m.conf.Version,
-		Description:             m.conf.AppName + " Api Service",
-		Logger:                  m.logger,
-		Debug:                   m.conf.Debug,
-		UserSvc:                 m,
-		ShutdownTimeout:         5,
-		DisableSwagAutoCreate:   !python.Any(!m.conf.StatisticDisabled, m.conf.Debug),
-		EnableDumpPID:           false,
-		DisableResponseValidate: false,
-		DisableRequestValidate:  false,
-		DisableBaseRoutes:       false,
+	mux := fastapi.New(fastapi.Config{
+		Title:                 m.conf.AppName,
+		Version:               m.conf.Version,
+		Description:           m.conf.AppName + " Api Service",
+		Logger:                m.logger,
+		Debug:                 m.conf.Debug,
+		ShutdownTimeout:       5,
+		DisableSwagAutoCreate: !python.Any(!m.conf.StatisticDisabled, m.conf.Debug),
 	})
+	m.faster = mux
+
+	eng := fiberWrapper.Default()
+	eng.App().Use(fiberWrapper.DefaultCORS)
+
+	mux.SetMux(eng)
+	mux.UseBeforeWrite(ErrorLog)
+
+	mux.IncludeRouter(routers.NewInfoRouter(mux.Config(), "/api/base"))
 
 	if python.Any(m.conf.EdgeEnabled, m.conf.Debug) {
-		m.faster.IncludeRouter(EdgeRouter())
+		mux.IncludeRouter(&EdgeRouter{})
 	}
 
 	if python.Any(!m.conf.StatisticDisabled, m.conf.Debug) {
-		m.faster.IncludeRouter(StatRouter())
+		mux.IncludeRouter(&StatRouter{})
 	}
 
 	return m
@@ -158,26 +164,4 @@ func New(cs ...Config) *MQ {
 	mq.ctx, mq.cancel = context.WithCancel(context.Background())
 
 	return mq
-}
-
-func newEdge(conf *fastapi.Config) *fastapi.FastApi {
-	conf.DisableResponseValidate = true
-	conf.EnableMultipleProcess = false
-
-	app := fastapi.New(*conf)
-	// Enable CORS
-	app.Use(func(c *fiber.Ctx) error {
-		c.Set("Access-Control-Allow-Origin", "*")
-		c.Set("Access-Control-Allow-Headers", "*")
-		c.Set("Access-Control-Allow-Credentials", "false")
-		c.Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS,DELETE,PATCH")
-
-		if c.Method() == fiber.MethodOptions {
-			c.Status(fiber.StatusOK)
-			return nil
-		}
-		return c.Next()
-	})
-
-	return app
 }

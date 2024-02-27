@@ -1,7 +1,10 @@
 import axios, {HttpStatusCode} from "axios";
 import {ref} from "vue";
 
-const ApiPrefix = import.meta.env.VITE_API_URL;
+let ApiPrefix = import.meta.env.VITE_API_URL;
+if (ApiPrefix == "") {
+    ApiPrefix = "http://localhost:7280"
+}
 
 // 允许跨域
 axios.defaults.baseURL = ApiPrefix;

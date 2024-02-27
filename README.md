@@ -4,6 +4,27 @@
 - 简单的消息中间件实现.
 - 实时的消息投递,不支持`Client`指定`offset`.
 
+## 启动
+
+### docker
+
+- 配置环境变量
+
+```text
+WEBSITE_PORT=7272                       # WEB 页面端口
+
+DEBUG=1                                 # broker 调试模式
+EDGE_ENABLED=true                       # 是否开启基于Http的消息publisher功能 default=true
+EDGE_LISTEN_PORT=7280                   # broker http 端口
+BROKER_LISTEN_PORT=7270                 # broker tcp 端口
+BROKER_TOKEN=123456                     # broker 密钥
+BROKER_MESSAGE_ENCRYPT=true             # 是否开启 broker 传输加密 default=false
+BROKER_MESSAGE_ENCRYPT_OPTION=TOKEN     # broker 加密方案
+BROKER_HEARTBEAT_TIMEOUT=60             # 心跳超时间隔 default=60，在3个此周期内收不到来自客户端的心跳，会强制关闭与客户端的链接
+BROKER_BUFFER_SIZE=100                  # 生产者消息历史记录最大数量 default=100
+BROKER_MAX_OPEN_SIZE=50                 # 允许的最大连接数 default=50, 即 生产者+消费者最多有几个
+```
+
 ## 依赖
 
 - [functools](https://github.com/Chendemo12/functools) 构建TCP；

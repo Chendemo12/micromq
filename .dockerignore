@@ -4,6 +4,13 @@ logs/
 test/
 vendor/
 tmp/
+website/.env.*
+website/docker-compose.yaml
+website/Dockerfile
+
+broker/.env
+broker/docker-file.yaml
+broker/Dockerfile
 
 .gitignore
 build.sh

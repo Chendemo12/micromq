@@ -1,23 +1,22 @@
 version: '3'
 services:
-  micromq:
+  broker:
+    container_name: micromq-broker
     build:
-      context: .
+      context: ./broker
       dockerfile: Dockerfile
     environment:
       - DEBUG=${DEBUG}
-      - BROKER_LISTEN_PORT=7270
       - BROKER_MAX_OPEN_SIZE=20
       - BROKER_TOKEN=${BROKER_TOKEN}
       - BROKER_HEARTBEAT_TIMEOUT=100
       - BROKER_MESSAGE_ENCRYPT=${BROKER_MESSAGE_ENCRYPT}
       - BROKER_MESSAGE_ENCRYPT_OPTION=${BROKER_MESSAGE_ENCRYPT_OPTION}
-      - EDGE_LISTEN_PORT=7280
-
+    volumes:
+      - "/etc/localtime:/etc/localtime:ro"
     ports:
-      - "7270:7270"
-      - "7271:7280"
-
+      - "${BROKER_LISTEN_PORT}:7270"
+      - "${EDGE_LISTEN_PORT}:7280"
     env_file:
       - .env
 
@@ -26,11 +25,41 @@ services:
       options:
         max-size: "20m" # 限制每个日志文件大小
         max-file: "15" # 保留最近日志文件天数
-
     deploy:
       resources:
         limits:
           cpus: '0.5'
           memory: '128M'
+
+    restart: always
+
+  micromq-web:
+    container_name: micromq-web
+    build:
+      context: ./website
+      dockerfile: Dockerfile
+    environment:
+      - NODE_ENV=production
+      - VITE_API_URL=http://localhost:7280
+    env_file:
+      - ".env"
+    ports:
+      - "${WEBSITE_PORT}:80"
+    volumes:
+      - "/etc/localtime:/etc/localtime:ro"
+      - "./website/nginx/nginx.conf:/etc/nginx/conf.d/nginx.conf"
+
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: '128M'
+    depends_on:
+      - broker
+
 
     restart: always
