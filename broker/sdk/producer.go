@@ -1,8 +1,8 @@
 package sdk
 
 import (
-	"github.com/Chendemo12/fastapi-tool/helper"
-	"github.com/Chendemo12/fastapi-tool/logger"
+	"github.com/Chendemo12/functools/helper"
+	"github.com/Chendemo12/functools/logger"
 	"github.com/Chendemo12/micromq/src/proto"
 	"github.com/Chendemo12/micromq/src/transfer"
 	"time"

@@ -1,8 +1,8 @@
 package sdk
 
 import (
-	"github.com/Chendemo12/fastapi-tool/helper"
-	"github.com/Chendemo12/fastapi-tool/logger"
+	"github.com/Chendemo12/functools/helper"
+	"github.com/Chendemo12/functools/logger"
 	"github.com/Chendemo12/functools/python"
 	"github.com/Chendemo12/micromq/src/proto"
 	"github.com/Chendemo12/micromq/src/transfer"
@@ -160,7 +160,7 @@ func NewConsumer(conf Config, handler ConsumerHandler) (*Consumer, error) {
 		return nil, ErrTopicEmpty
 	}
 
-	if handler == nil || handler.Handler == nil {
+	if handler.Handler == nil {
 		return nil, ErrConsumerHandlerIsNil
 	}
 

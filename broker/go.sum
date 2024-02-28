@@ -40,10 +40,8 @@ github.com/BurntSushi/toml v0.3.1/go.mod h1:xHWCNGjB5oqiDr8zfno3MHue2Ht5sIBksp03
 github.com/BurntSushi/xgb v0.0.0-20160522181843-27f122750802/go.mod h1:IVnqGOEym/WlBOVXweHU+Q+/VP0lqqI8lqeDx9IjBqo=
 github.com/Chendemo12/fastapi v0.2.2 h1:aaPtC4vqLrNTgW03d7uVLG3Oew9V28ZYQprurGehNpo=
 github.com/Chendemo12/fastapi v0.2.2/go.mod h1:dRNpZ47l8Z3ucUfThMcDetPxqrnPyi9l8rBLMKDKYGE=
-github.com/Chendemo12/fastapi-tool v0.1.1 h1:pU6S+FHsfh70ag+u8hFoW73zQ3UAy+lMOU131X3DYOM=
-github.com/Chendemo12/fastapi-tool v0.1.1/go.mod h1:kSdfAFgGdinzN/9/DQzwN4FvAr3VZRrRZPX5W3EulSo=
-github.com/Chendemo12/functools v0.2.2 h1:tl7A2apg0GYKdb3utIvESyD8ga7DZko3No0qabXh+s0=
-github.com/Chendemo12/functools v0.2.2/go.mod h1:vv5JlIzFgyhW9qB/6S+8E19KOUiF+8HF/dS3wZCsf1I=
+github.com/Chendemo12/functools v0.2.4 h1:QZAzJUCWbdh1VYRaHPTSgbUTl2AuEQ4AEM2spvpJTh4=
+github.com/Chendemo12/functools v0.2.4/go.mod h1:JFoC+sBLUcRj05lxEjTLxeSTJkRW5+3eRrWnt5iiH+8=
 github.com/andybalholm/brotli v1.0.5 h1:8uQZIdzKmjc/iuPu7O2ioW48L81FgatrcpfFmiq/cCs=
 github.com/andybalholm/brotli v1.0.5/go.mod h1:fO7iG3H7G2nSZ7m0zPUDn85XEX2GTukHGRSepvi9Eig=
 github.com/benbjohnson/clock v1.1.0 h1:Q92kusRqC1XV2MjkWETPvjJVqKetz1OzxZB7mHJLju8=

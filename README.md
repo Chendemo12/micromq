@@ -153,7 +153,7 @@ package monitor
 
 import (
 	"github.com/Chendemo12/micromq/sdk"
-	"github.com/Chendemo12/fastapi-tool/logger"
+	"github.com/Chendemo12/functools/logger"
 )
 
 type ProducerHandler struct {

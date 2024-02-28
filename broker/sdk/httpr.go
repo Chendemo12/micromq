@@ -3,19 +3,15 @@ package sdk
 import (
 	"errors"
 	"fmt"
-	"github.com/Chendemo12/fastapi-tool/helper"
+	"github.com/Chendemo12/functools/helper"
 	"github.com/Chendemo12/functools/httpc"
 	"github.com/Chendemo12/micromq/src/proto"
-	"net"
 )
 
 // NewHttpProducer 创建一个HTTP的生产者
-func NewHttpProducer(host, port string) *HttpProducer {
-	c, _ := httpc.NewHttpr(host, port)
-
+func NewHttpProducer(addr string) *HttpProducer {
 	return &HttpProducer{
-		client:    c,
-		addr:      net.JoinHostPort(host, port),
+		addr:      addr,
 		path:      "/api/edge/product",
 		asyncPath: "/api/edge/product/async",
 		crypto:    &proto.NoCrypto{},
@@ -54,6 +50,7 @@ func (m ProductResponse) String() string {
 		"<ProductResponse> with status: %s | %d", m.Status, m.Offset,
 	)
 }
+
 func (m ProductResponse) Error() error {
 	switch m.Status {
 	case "UnmarshalFailed":
@@ -76,19 +73,14 @@ func (m ProductResponse) IsOK() bool {
 //
 //	# Usage:
 //
-//		p := NewHttpProducer("127.0.0.1", "8080")
+//		p := NewHttpProducer("http://127.0.0.1:1234")
 //		p.SetToken("token")
-//		p.SetPath("/api/edge/product")	// 可选的
 //
 //		resp, err := p.Send("topic", "key", []byte("value"))
 //		if err != nil {
 //			panic(err)
 //		}
-//		if !resp.IsOK() {
-//			// ok
-//		}
 type HttpProducer struct {
-	client    *httpc.Httpr
 	addr      string
 	path      string
 	asyncPath string
@@ -151,16 +143,8 @@ func (p *HttpProducer) Send(topic, key string, value []byte) (*ProductResponse, 
 	// base64 编码
 	msg.Value = helper.Base64Encode(content)
 
-	resp := &ProductResponse{}
 	// 发起HTTP请求
-	opt := &httpc.Opt{RequestModel: msg, ResponseModel: resp, ContextType: "application/json"}
-	opt = p.client.Post(p.path, opt)
-
-	if !opt.IsOK() { // 请求发起失败
-		return nil, opt.Err
-	}
-
-	return resp, nil
+	return httpc.Post[*ProductResponse](p.Url(), nil, msg)
 }
 
 // Post 发送消息

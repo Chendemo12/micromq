@@ -3,9 +3,9 @@ package mq
 import (
 	"fmt"
 	"github.com/Chendemo12/fastapi"
-	"github.com/Chendemo12/fastapi-tool/helper"
 	"github.com/Chendemo12/fastapi/openapi"
 	"github.com/Chendemo12/fastapi/pathschema"
+	"github.com/Chendemo12/functools/helper"
 	"github.com/Chendemo12/micromq/src/proto"
 	"net/http"
 	"strings"

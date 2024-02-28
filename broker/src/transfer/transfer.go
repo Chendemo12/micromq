@@ -1,7 +1,7 @@
 package transfer
 
 import (
-	"github.com/Chendemo12/fastapi-tool/logger"
+	"github.com/Chendemo12/functools/logger"
 	"github.com/Chendemo12/micromq/src/proto"
 )
 

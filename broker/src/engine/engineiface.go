@@ -5,7 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/Chendemo12/fastapi-tool/logger"
+	"github.com/Chendemo12/functools/logger"
 	"github.com/Chendemo12/micromq/src/proto"
 	"github.com/Chendemo12/micromq/src/transfer"
 	"reflect"
