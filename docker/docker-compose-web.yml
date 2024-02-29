@@ -3,13 +3,13 @@ services:
   micromq-web:
     container_name: micromq-web
     build:
-      context: .
+      context: ../website
       dockerfile: Dockerfile
 
     ports:
       - "7272:80"
     volumes:
-      - "./nginx/nginx.conf:/etc/nginx/conf.d/nginx.conf"
+      - "./nginx/nginx-web.conf:/etc/nginx/conf.d/nginx.conf"
 
     logging:
       driver: json-file

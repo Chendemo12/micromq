@@ -37,7 +37,7 @@ func (e *Engine) SetEventHandler(handler EventHandler) *Engine {
 
 // SetTopicHistoryBufferSize 设置topic历史数据缓存大小, 对于修改前已经创建的topic不受影响
 //
-//	@param size	int 历史数据缓存大小,[1, 10000)
+//	@param	size	int	历史数据缓存大小,[1, 10000)
 func (e *Engine) SetTopicHistoryBufferSize(size int) *Engine {
 	if size > 0 && size < 10000 {
 		e.conf.topicHistorySize = size
@@ -207,10 +207,10 @@ func (e *Engine) HeartbeatInterval() float64 {
 //		HookHandler 的第一个参数为接收到的消息帧, 可通过 proto.TransferFrame.Unmarshal 方法解码, 第二个参数为当前的客户端连接,
 //		此方法返回"处理是否正确"一个参数, 若定义了 needAck 则需要返回错误消息给客户端
 //
-//	@param	m		proto.Message	实现了 proto.Message 接口的自定义消息, 不允许与内置消息冲突, 可通过 proto.IsMessageDefined 判断
+//	@param	m		proto.Message	实现了	proto.Message	接口的自定义消息,	不允许与内置消息冲突,	可通过	proto.IsMessageDefined	判断
 //	@param	handler	HookHandler		消息处理方法
-//	@param	ack 	proto.Message	是否需要返回响应给客户端
-//	@param	text 	string 			此消息的摘要名称
+//	@param	ack		proto.Message	是否需要返回响应给客户端
+//	@param	text	string			此消息的摘要名称
 func (e *Engine) BindMessageHandler(m proto.Message, ack proto.Message, handler HookHandler, text string) error {
 	if text == "" {
 		rt := reflect.TypeOf(m)
@@ -245,8 +245,8 @@ func (e *Engine) SetCrypto(crypto proto.Crypto) *Engine {
 
 // SetCryptoPlan 设置加密方案
 //
-//	@param	option	string		加密方案, 支持token/no (令牌加密和不加密)
-//	@param	key 	[]string	其他加密参数
+//	@param	option	string		加密方案,	支持token/no	(令牌加密和不加密)
+//	@param	key		[]string	其他加密参数
 func (e *Engine) SetCryptoPlan(option string, key ...string) *Engine {
 	args := append([]string{e.conf.Token}, key...)
 	e.crypto = proto.CreateCrypto(option, args...)

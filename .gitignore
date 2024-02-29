@@ -1,7 +1,7 @@
 ./bin/
-.idea
+**/.idea
 main
-vendor
+**/vendor
 **/logs/
 **/.env
 pid.txt

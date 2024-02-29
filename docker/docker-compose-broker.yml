@@ -2,7 +2,7 @@ version: '3'
 services:
   micromq-broker:
     build:
-      context: .
+      context: ..
       dockerfile: Dockerfile
     container_name: micromq-broker
     environment:

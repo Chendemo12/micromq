@@ -1,9 +1,9 @@
 version: '3'
 services:
-  broker:
+  micromq-broker:
     container_name: micromq-broker
     build:
-      context: ./broker
+      context: ..
       dockerfile: Dockerfile
     environment:
       - DEBUG=${DEBUG}
@@ -33,10 +33,10 @@ services:
 
     restart: always
 
-  web:
+  micromq-web:
     container_name: micromq-web
     build:
-      context: ./website
+      context: ../website
       dockerfile: Dockerfile
     environment:
       - NODE_ENV=production
@@ -47,7 +47,7 @@ services:
       - "${WEBSITE_PORT}:80"
     volumes:
       - "/etc/localtime:/etc/localtime:ro"
-      - "./website/nginx/nginx.conf:/etc/nginx/conf.d/nginx.conf"
+      - "./nginx/nginx.conf:/etc/nginx/conf.d/nginx.conf"
 
     logging:
       driver: json-file
@@ -59,7 +59,7 @@ services:
           cpus: '0.5'
           memory: '128M'
     depends_on:
-      - broker
+      - micromq-broker
 
 
     restart: always

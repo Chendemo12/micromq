@@ -1,5 +1,11 @@
 # MICRO-MQ
 
+## v0.3.8 - 20240229
+
+### Feat
+
+- upgrade fastapi:v0.2.2 and functools:v0.2.4.
+
 ## v0.3.7 - 20231020
 
 ### Fix

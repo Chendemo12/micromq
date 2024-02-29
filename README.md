@@ -8,6 +8,10 @@
 
 ### docker
 
+- `docker/docker-compose.yml`: broker + website 文件；
+- `docker/docker-compose-broker.yml`: broker 文件；
+- `docker/docker-compose-web.yml`: website 文件，需修改`docker/nginx/nginx-web.conf:11`中`proxy_pass`的地址；
+
 - 配置环境变量
 
 ```text
@@ -30,6 +34,7 @@ BROKER_MAX_OPEN_SIZE=50                 # 允许的最大连接数 default=50, �
 #### broker
 
 - 配置环境变量
+
 ```text
 DEBUG=1                                 # broker 调试模式
 EDGE_ENABLED=true                       # 是否开启基于Http的消息publisher功能 default=true
