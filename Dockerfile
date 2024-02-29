@@ -9,6 +9,7 @@ COPY . .
 ENV GOPROXY=https://proxy.golang.com.cn,direct
 ENV CGO_ENABLED=0
 RUN go mod download
+RUN go mod vendor
 RUN go build -ldflags="-s -w" -gcflags='-l -l -l -m' -o micromq
 
 
