@@ -6,16 +6,22 @@ import (
 	"github.com/Chendemo12/functools/helper"
 	"github.com/Chendemo12/functools/httpc"
 	"github.com/Chendemo12/micromq/src/proto"
+	"strings"
 )
 
 // NewHttpProducer 创建一个HTTP的生产者
 func NewHttpProducer(addr string) *HttpProducer {
-	return &HttpProducer{
-		addr:      addr,
-		path:      "/api/edge/product",
-		asyncPath: "/api/edge/product/async",
-		crypto:    &proto.NoCrypto{},
+	for strings.HasSuffix(addr, "/") {
+		addr = addr[:len(addr)-1]
 	}
+
+	p := &HttpProducer{
+		Addr:   addr,
+		crypto: &proto.NoCrypto{},
+	}
+	p.SetPath("/api/edge/product").SetAsyncPath("/api/edge/product/async")
+
+	return p
 }
 
 // ProducerForm 生产者消息投递表单, 不允许将多个消息编码成一个消息帧;
@@ -23,7 +29,7 @@ func NewHttpProducer(addr string) *HttpProducer {
 // value是对加密后的消息体进行base64编码后的结果,依据token判断是否需要解密
 type ProducerForm struct {
 	Topic string `json:"topic" description:"消息主题"`
-	Key   string `json:"key" description:"消息键"`
+	Key   string `json:"key,omitempty" description:"消息键"`
 	Value string `json:"value" description:"base64编码后的消息体"`
 	Token string `json:"token,omitempty" description:"认证密钥"`
 }
@@ -35,7 +41,8 @@ func (m ProducerForm) String() string {
 		m.Topic, m.Key, len(m.Value),
 	)
 }
-func (m ProducerForm) IsEncrypt() bool { return m.Topic != "" }
+
+func (m ProducerForm) IsEncrypt() bool { return m.Token != "" }
 
 // ProductResponse 消息返回值; 仅当 status=Accepted 时才认为服务器接受了请求并正确的处理了消息
 type ProductResponse struct {
@@ -81,38 +88,55 @@ func (m ProductResponse) IsOK() bool {
 //			panic(err)
 //		}
 type HttpProducer struct {
-	addr      string
+	Addr      string `json:"addr,omitempty"`
 	path      string
 	asyncPath string
 	token     string
 	crypto    proto.Crypto
 }
 
-// Addr broker 地址
-func (p *HttpProducer) Addr() string { return p.addr }
-
 // Url 请求路由
-func (p *HttpProducer) Url() string { return p.addr + p.addr }
+func (p *HttpProducer) Url() string { return p.Addr + p.path }
 
 // AsyncUrl 异步方法请求路由
-func (p *HttpProducer) AsyncUrl() string { return p.addr + p.asyncPath }
-
-// SetToken 设置认证密钥
-func (p *HttpProducer) SetToken(token string) *HttpProducer {
-	p.crypto = &proto.TokenCrypto{Token: token}
-	p.token = token
-	return p
-}
+func (p *HttpProducer) AsyncUrl() string { return p.Addr + p.asyncPath }
 
 // SetPath 修改broker路径
 func (p *HttpProducer) SetPath(path string) *HttpProducer {
-	p.path = path
+	if !strings.HasPrefix(path, "/") {
+		p.path = "/" + path
+	} else {
+		p.path = path
+	}
 	return p
 }
 
 // SetAsyncPath 修改broker异步方法路径
 func (p *HttpProducer) SetAsyncPath(path string) *HttpProducer {
-	p.asyncPath = path
+	if !strings.HasPrefix(path, "/") {
+		p.asyncPath = "/" + path
+	} else {
+		p.asyncPath = path
+	}
+	return p
+}
+
+// SetToken 设置认证密钥
+// @param token string 认证密钥,通常为原始密码的一次SHA256后的十六进制字符串 proto.CalcSHA
+func (p *HttpProducer) SetToken(token string) *HttpProducer {
+	p.crypto = &proto.TokenCrypto{Token: token}
+	p.token = token
+
+	return p
+}
+
+// SetPassword 设置认证密码
+// @param password string 原始密码
+func (p *HttpProducer) SetPassword(password string) *HttpProducer {
+	token := proto.CalcSHA(password)
+	p.crypto = &proto.TokenCrypto{Token: token}
+	p.token = token
+
 	return p
 }
 
@@ -157,7 +181,7 @@ func (p *HttpProducer) Post(topic, key string, form any) (*ProductResponse, erro
 	return p.Send(topic, key, value)
 }
 
-// CreateSHA 计算字符串的HASH值,默认为SHA256
-func (p *HttpProducer) CreateSHA(pass string) string {
-	return proto.CalcSHA(pass)
+// CreateSHA 计算字符串的SHA256值
+func (p *HttpProducer) CreateSHA(str string) string {
+	return proto.CalcSHA(str)
 }
