@@ -7,7 +7,7 @@ import (
 	"github.com/Chendemo12/micromq/src/proto"
 )
 
-const VERSION = "v0.3.8"
+const VERSION = "v0.3.9"
 const NAME = "micromq"
 
 func main() {
@@ -20,9 +20,9 @@ func main() {
 	conf.Broker.Host = "0.0.0.0"
 	conf.Broker.Port = environ.GetString("BROKER_CORE_LISTEN_PORT", "7270")
 	conf.Broker.BufferSize = environ.GetInt("BROKER_BUFFER_SIZE", 100)
-	conf.Broker.MaxOpenConn = environ.GetInt("BROKER_MAX_OPEN_SIZE", 50)
+	conf.Broker.MaxOpenConn = environ.GetInt("BROKER_MAX_OPEN_SIZE", 100)
 	conf.Broker.HeartbeatTimeout = float64(environ.GetInt("BROKER_HEARTBEAT_TIMEOUT", 60))
-	conf.Broker.Token = proto.CalcSHA(environ.GetString("BROKER_TOKEN", ""))
+	conf.Broker.Token = proto.CalcSHA(environ.GetString("BROKER_PASSWORD", ""))
 	// 是否开启消息加密
 	msgEncrypt := environ.GetBool("BROKER_MESSAGE_ENCRYPT", false)
 	// 消息加密方案, 目前仅支持基于 Token 的加密

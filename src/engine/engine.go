@@ -15,7 +15,7 @@ import (
 type Config struct {
 	Host             string          `json:"host"`
 	Port             string          `json:"port"`
-	MaxOpenConn      int             `json:"max_open_conn"` // 允许的最大连接数, 即 生产者+消费者最多有 MaxOpenConn 个
+	MaxOpenConn      int             `json:"max_open_conn"` // 允许的最大连接数, 即 生产者+消费者最多有 MaxOpenConn 个, 为0则不限制
 	BufferSize       int             `json:"buffer_size"`   // 生产者消息历史记录最大数量
 	HeartbeatTimeout float64         `json:"heartbeat_timeout"`
 	Logger           logger.Iface    `json:"-"`
@@ -28,9 +28,6 @@ type Config struct {
 func (c *Config) clean() *Config {
 	if !(c.BufferSize > 0 && c.BufferSize <= 5000) {
 		c.BufferSize = 100
-	}
-	if !(c.MaxOpenConn > 0 && c.MaxOpenConn <= 100) {
-		c.MaxOpenConn = 50
 	}
 
 	if c.Logger == nil {
@@ -84,7 +81,7 @@ func (e *Engine) beforeServe() *Engine {
 	e.producers = make([]*Producer, e.conf.MaxOpenConn)
 	e.consumers = make([]*Consumer, e.conf.MaxOpenConn)
 
-	for i := 0; i < e.conf.MaxOpenConn; i++ {
+	for i := 0; i < len(e.consumers); i++ {
 		e.consumers[i] = &Consumer{
 			index: i,
 			mu:    &sync.Mutex{},
@@ -92,7 +89,8 @@ func (e *Engine) beforeServe() *Engine {
 			Addr:  "",
 			Conn:  nil,
 		}
-
+	}
+	for i := 0; i < len(e.producers); i++ {
 		e.producers[i] = &Producer{
 			index: i,
 			mu:    &sync.Mutex{},
@@ -188,23 +186,52 @@ func (e *Engine) whenClientClosed(addr string) {
 
 // 查找一个空闲的 生产者槽位，若未找到则返回 -1，应在查找之前主动加锁
 func (e *Engine) findProducerSlot() int {
-	for i := 0; i < e.conf.MaxOpenConn; i++ {
+	index := -1
+	for i := 0; i < len(e.producers); i++ {
 		// cannot be nil
 		if e.producers[i].IsFree() {
-			return i
+			index = i
+			break
 		}
 	}
-	return -1
+
+	if index == -1 && e.conf.MaxOpenConn <= 0 {
+		// 不限制连接数量，追加空间
+		index = len(e.consumers)
+		e.producers = append(e.producers, &Producer{
+			index: index,
+			mu:    &sync.Mutex{},
+			Conf:  &ProducerConfig{},
+			Addr:  "",
+			Conn:  nil,
+		})
+	}
+
+	return index
 }
 
 // 查找一个空闲的 消费者槽位，若未找到则返回 -1，应在查找之前主动加锁
 func (e *Engine) findConsumerSlot() int {
-	for i := 0; i < e.conf.MaxOpenConn; i++ {
+	index := -1
+	for i := 0; i < len(e.consumers); i++ {
 		if e.consumers[i].IsFree() {
-			return i
+			index = i
+			break
 		}
 	}
-	return -1
+	if index == -1 && e.conf.MaxOpenConn <= 0 {
+		// 不限制连接数量，追加空间
+		index = len(e.consumers)
+		e.consumers = append(e.consumers, &Consumer{
+			index: index,
+			mu:    &sync.Mutex{},
+			Conf:  &ConsumerConfig{},
+			Addr:  "",
+			Conn:  nil,
+		})
+	}
+
+	return index
 }
 
 // 将一系列处理过程组合成一条链

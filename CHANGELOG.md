@@ -1,5 +1,16 @@
 # MICRO-MQ
 
+## v0.3.9 - 20240324
+
+### Feat
+
+- upgrade fastapi:v0.2.5 and functools:v0.2.5.
+- 支持不受限制的连接数；
+
+### BREAKING
+
+- 修改环境变量 `BROKER_TOKEN` -> `BROKER_PASSWORD`
+
 ## v0.3.8 - 20240229
 
 ### Feat

@@ -21,7 +21,7 @@ DEBUG=1                                 # broker 调试模式
 EDGE_ENABLED=true                       # 是否开启基于Http的消息publisher功能 default=true
 EDGE_LISTEN_PORT=7271                   # broker http 端口
 BROKER_LISTEN_PORT=7270                 # broker tcp 端口
-BROKER_TOKEN=123456                     # broker 密钥
+BROKER_PASSWORD=123456                     # broker 密钥
 BROKER_MESSAGE_ENCRYPT=true             # 是否开启 broker 传输加密 default=false
 BROKER_MESSAGE_ENCRYPT_OPTION=TOKEN     # broker 加密方案
 BROKER_HEARTBEAT_TIMEOUT=60             # 心跳超时间隔 default=60，在3个此周期内收不到来自客户端的心跳，会强制关闭与客户端的链接
@@ -40,7 +40,7 @@ DEBUG=1                                 # broker 调试模式
 EDGE_ENABLED=true                       # 是否开启基于Http的消息publisher功能 default=true
 BROKER_EDGE_LISTEN_PORT=7271            # broker http 端口
 BROKER_CORE_LISTEN_PORT=7270            # broker tcp 端口
-BROKER_TOKEN=123456                     # broker 密钥
+BROKER_PASSWORD=123456                     # broker 密钥
 BROKER_MESSAGE_ENCRYPT=true             # 是否开启 broker 传输加密 default=false
 BROKER_MESSAGE_ENCRYPT_OPTION=TOKEN     # broker 加密方案
 BROKER_HEARTBEAT_TIMEOUT=60             # 心跳超时间隔 default=60，在3个此周期内收不到来自客户端的心跳，会强制关闭与客户端的链接
@@ -114,7 +114,7 @@ func main() {
 	conf.Broker.BufferSize = environ.GetInt("BROKER_BUFFER_SIZE", 100)
 	conf.Broker.MaxOpenConn = environ.GetInt("BROKER_MAX_OPEN_SIZE", 50)
 	conf.Broker.HeartbeatTimeout = float64(environ.GetInt("BROKER_HEARTBEAT_TIMEOUT", 60))
-	conf.Broker.Token = proto.CalcSHA(environ.GetString("BROKER_TOKEN", ""))
+	conf.Broker.Token = proto.CalcSHA(environ.GetString("BROKER_PASSWORD", ""))
 	// 是否开启消息加密
 	msgEncrypt := environ.GetBool("BROKER_MESSAGE_ENCRYPT", false)
 	// 消息加密方案, 目前仅支持基于 Token 的加密

@@ -28,7 +28,7 @@ var defaultConf = Config{
 	Broker: &engine.Config{
 		Host:             "0.0.0.0",
 		Port:             "7270",
-		MaxOpenConn:      50,
+		MaxOpenConn:      100,
 		BufferSize:       100,
 		HeartbeatTimeout: 60,
 		Logger:           logger.NewDefaultLogger(),

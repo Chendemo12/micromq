@@ -76,7 +76,7 @@ func (e *Engine) QueryProducer(addr string) (*Producer, bool) {
 
 // RangeConsumer 遍历连接的消费者, if false returned, for-loop will stop
 func (e *Engine) RangeConsumer(fn func(c *Consumer) bool) {
-	for i := 0; i < e.conf.MaxOpenConn; i++ {
+	for i := 0; i < len(e.consumers); i++ {
 		if e.consumers[i].IsFree() {
 			continue
 		}
@@ -89,7 +89,7 @@ func (e *Engine) RangeConsumer(fn func(c *Consumer) bool) {
 
 // RangeProducer 遍历连接的生产者, if false returned, for-loop will stop
 func (e *Engine) RangeProducer(fn func(p *Producer) bool) {
-	for i := 0; i < e.conf.MaxOpenConn; i++ {
+	for i := 0; i < len(e.producers); i++ {
 		if e.producers[i].IsFree() {
 			continue
 		}
@@ -295,7 +295,7 @@ func New(cs ...Config) *Engine {
 	conf := &Config{
 		Host:             "127.0.0.1",
 		Port:             "7270",
-		MaxOpenConn:      50,
+		MaxOpenConn:      100,
 		BufferSize:       200,
 		HeartbeatTimeout: 60,
 	}

@@ -40,7 +40,7 @@ func (m *MQ) initBroker() *MQ {
 }
 
 // 初始化HTTP路由
-func (m *MQ) initHttp() *MQ {
+func (m *MQ) initEdge() *MQ {
 	mux := fastapi.New(fastapi.Config{
 		Title:                 m.conf.AppName,
 		Version:               m.conf.Version,
@@ -121,7 +121,7 @@ func (m *MQ) Serve() {
 		}
 	}()
 
-	m.initHttp()
+	m.initEdge()
 	m.faster.Run(m.conf.EdgeHttpHost, m.conf.EdgeHttpPort)
 }
 
