@@ -7,7 +7,7 @@ services:
       dockerfile: Dockerfile
     environment:
       - DEBUG=${DEBUG}
-      - BROKER_MAX_OPEN_SIZE=20
+      - BROKER_MAX_OPEN_SIZE=${BROKER_MAX_OPEN_SIZE}
       - BROKER_PASSWORD=${BROKER_PASSWORD}
       - BROKER_HEARTBEAT_TIMEOUT=100
       - BROKER_MESSAGE_ENCRYPT=${BROKER_MESSAGE_ENCRYPT}
