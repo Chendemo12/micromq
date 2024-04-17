@@ -12,6 +12,8 @@ import (
 	"time"
 )
 
+var pathSchema = pathschema.NewComposition(&pathschema.Backslash{}, &pathschema.LowerCase{})
+
 type ConsumerStatistic struct {
 	Addr   string   `json:"addr" description:"连接地址"`
 	Topics []string `json:"topics" description:"订阅的主题名列表"`
@@ -92,7 +94,7 @@ type EdgeRouter struct {
 func (r *EdgeRouter) Prefix() string { return "/api/edge" }
 
 func (r *EdgeRouter) PathSchema() pathschema.RoutePathSchema {
-	return pathschema.NewComposition(&pathschema.Backslash{}, &pathschema.LowerCase{})
+	return pathSchema
 }
 
 func (r *EdgeRouter) Path() map[string]string {
@@ -187,7 +189,7 @@ type StatRouter struct {
 func (r *StatRouter) Prefix() string { return "/api/statistic" }
 
 func (r *StatRouter) PathSchema() pathschema.RoutePathSchema {
-	return pathschema.NewComposition(&pathschema.Backslash{}, &pathschema.LowerCase{})
+	return pathSchema
 }
 
 func (r *StatRouter) Summary() map[string]string {
@@ -267,6 +269,67 @@ func (r *StatRouter) GetTopicConsumers(c *fastapi.Context) ([]*TopicConsumerStat
 	}
 
 	return cc, nil
+}
+
+// ====
+
+type ExchangeReq struct {
+	From string `json:"from" validate:"required,gte=1" description:"源TOPIC"`
+	To   string `json:"to" validate:"required,gte=1" description:"目标TOPIC"`
+}
+
+func (m *ExchangeReq) String() string {
+	return fmt.Sprintf("<ExchangeReq> from [ %s ] to [ %s ]", m.From, m.To)
+}
+func (m *ExchangeReq) SchemaDesc() string {
+	return "设置topic数据交换"
+}
+
+type ExchangeResp struct {
+	Result string `json:"result" validate:"required,oneof=ok fail" description:"交换结果"`
+	Code   string `json:"code,omitempty" description:"错误码"`
+	Err    string `json:"err,omitempty" description:"错误信息"`
+}
+
+type ExchangeShowReq struct {
+	Via string `query:"via" json:"via" validate:"required,gte=1" description:"源TOPIC"`
+}
+
+func (m *ExchangeResp) String() string {
+	return fmt.Sprintf("<ExchangeResp> result [ %s ]", m.Result)
+}
+func (m *ExchangeResp) SchemaDesc() string {
+	return "交换结果"
+}
+
+type ExchangeRouter struct {
+	fastapi.BaseGroupRouter
+}
+
+func (r *ExchangeRouter) Prefix() string { return "/api/exchange" }
+
+func (r *ExchangeRouter) PathSchema() pathschema.RoutePathSchema {
+	return pathSchema
+}
+func (r *ExchangeRouter) Summary() map[string]string {
+	return map[string]string{
+		"Exchange": "交换主题",
+	}
+}
+func (r *ExchangeRouter) Description() map[string]string {
+	return map[string]string{}
+}
+
+func (r *ExchangeRouter) PostAdd(c *fastapi.Context, form *ExchangeReq) (*ExchangeResp, error) {
+	return nil, nil
+}
+
+func (r *ExchangeRouter) DeleteDel(c *fastapi.Context, form *ExchangeReq) (*ExchangeResp, error) {
+	return nil, nil
+}
+
+func (r *ExchangeRouter) GetShow(c *fastapi.Context, form *ExchangeShowReq) ([]*ExchangeReq, error) {
+	return nil, nil
 }
 
 // ====

@@ -59,6 +59,7 @@ func (m *MQ) initEdge() *MQ {
 	mux.UseBeforeWrite(ErrorLog)
 
 	mux.IncludeRouter(routers.NewInfoRouter(mux.Config(), "/api/base"))
+	mux.IncludeRouter(&ExchangeRouter{})
 
 	if python.Any(m.conf.EdgeEnabled, m.conf.Debug) {
 		mux.IncludeRouter(&EdgeRouter{})
