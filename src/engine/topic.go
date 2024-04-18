@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"encoding/binary"
 	"github.com/Chendemo12/micromq/src/proto"
 	"sync"
@@ -9,12 +10,6 @@ import (
 
 var cpmp = proto.NewCPMPool()
 var framePool = proto.NewFramePool()
-
-type HistoryRecordStatus string
-
-const (
-	BuildFailed HistoryRecordStatus = ""
-)
 
 type HistoryRecord struct {
 	frame       *proto.TransferFrame //
@@ -28,16 +23,18 @@ type HistoryRecord struct {
 }
 
 type Topic struct {
-	Name           []byte               `json:"name"`         // 唯一标识
-	HistorySize    int                  `json:"history_size"` // 生产者消息缓冲区大小
-	Offset         uint64               `json:"offset"`       // 当前数据偏移量,仅用于模糊显示
-	counter        *proto.Counter       // 生产者消息计数器,用于计算数据偏移量
-	consumers      *sync.Map            // 全部消费者: {addr: Consumer}
-	queue          chan *proto.CMessage // 等待消费者消费的数据
-	historyRecords *proto.Queue         // proto.Queue[*HistoryRecord], 历史消息,由web查询展示
-	crypto         proto.Crypto         // 加解密器
-	mu             *sync.Mutex
-	onConsumed     func(record *HistoryRecord)
+	Name               []byte                        `json:"name"`         // 唯一标识
+	ForwardingAddrs    [ForwardingAddrsMaxNum]*Topic `json:"-"`            // 数据转发目标, nil 则不存在
+	ForwardingAddrsEnd int                           `json:"-"`            // ForwardingAddrs 的结束位置 < ForwardingAddrsMaxNum
+	HistorySize        int                           `json:"history_size"` // 生产者消息缓冲区大小
+	Offset             uint64                        `json:"offset"`       // 当前数据偏移量,仅用于模糊显示
+	counter            *proto.Counter                // 生产者消息计数器,用于计算数据偏移量
+	consumers          *sync.Map                     // 全部消费者: {addr: Consumer}
+	queue              chan *proto.CMessage          // 等待消费者消费的数据
+	historyRecords     *proto.Queue                  // proto.Queue[*HistoryRecord], 历史消息,由web查询展示
+	crypto             proto.Crypto                  // 加解密器
+	forwardLock        *sync.Mutex                   // ForwardingAddrs 锁
+	onConsumed         func(record *HistoryRecord)
 }
 
 // 计算当前消息偏移量
@@ -184,6 +181,46 @@ func (t *Topic) LatestMessage() *HistoryRecord {
 	return r
 }
 
+// AddForwardingAddr 添加转发器
+func (t *Topic) AddForwardingAddr(topic *Topic) (int, ErrCode) {
+	if bytes.Compare(t.Name, topic.Name) == 0 {
+		return 0, ErrCodeExchangeSame
+	}
+	// TODO: 去重，不允许添加重复的
+	t.forwardLock.Lock()
+	defer t.forwardLock.Unlock()
+
+	for i := 0; i < ForwardingAddrsMaxNum; i++ {
+		if t.ForwardingAddrs[i] == nil {
+			t.ForwardingAddrs[i] = topic
+
+			// 更新最大坐标
+			if t.ForwardingAddrsEnd < i+1 {
+				t.ForwardingAddrsEnd = i + 1
+			}
+
+			return i, ErrCodeOK
+		}
+	}
+
+	return 0, ErrCodeExchangeIsFull
+}
+
+// DelForwardingAddr 删除转发器
+func (t *Topic) DelForwardingAddr(topic *Topic) (int, ErrCode) {
+	t.forwardLock.Lock()
+	defer t.forwardLock.Unlock()
+
+	for i := 0; i < t.ForwardingAddrsEnd; i++ {
+		if bytes.Compare(t.ForwardingAddrs[i].Name, topic.Name) == 0 {
+			t.ForwardingAddrs[i] = nil
+			break
+		}
+	}
+
+	return 0, ErrCodeOK
+}
+
 func NewTopic(name []byte, bufferSize, historySize int) *Topic {
 	t := &Topic{
 		Name:        name,
@@ -193,7 +230,7 @@ func NewTopic(name []byte, bufferSize, historySize int) *Topic {
 		consumers:   &sync.Map{},
 		queue:       make(chan *proto.CMessage, bufferSize),
 		crypto:      &proto.NoCrypto{},
-		mu:          &sync.Mutex{},
+		forwardLock: &sync.Mutex{},
 		onConsumed:  func(_ *HistoryRecord) {},
 	}
 	go t.consume()
