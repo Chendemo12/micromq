@@ -3,18 +3,20 @@ module github.com/Chendemo12/micromq
 go 1.21
 
 require (
-	github.com/Chendemo12/fastapi v0.2.5
+	github.com/Chendemo12/fastapi v0.2.6
 	github.com/Chendemo12/functools v0.2.5
+	github.com/coocood/freecache v1.2.4
+	github.com/gofiber/fiber/v2 v2.52.2
 )
 
 require (
 	github.com/andybalholm/brotli v1.0.5 // indirect
+	github.com/cespare/xxhash/v2 v2.1.2 // indirect
 	github.com/fsnotify/fsnotify v1.6.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.3 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect
 	github.com/go-playground/universal-translator v0.18.1 // indirect
 	github.com/go-playground/validator/v10 v10.19.0 // indirect
-	github.com/gofiber/fiber/v2 v2.52.2 // indirect
 	github.com/google/uuid v1.5.0 // indirect
 	github.com/hashicorp/hcl v1.0.0 // indirect
 	github.com/json-iterator/go v1.1.12 // indirect

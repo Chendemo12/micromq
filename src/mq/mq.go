@@ -3,8 +3,6 @@ package mq
 import (
 	"context"
 	"github.com/Chendemo12/fastapi"
-	"github.com/Chendemo12/fastapi/middleware/fiberWrapper"
-	"github.com/Chendemo12/fastapi/middleware/routers"
 	"github.com/Chendemo12/functools/logger"
 	"github.com/Chendemo12/functools/python"
 	"github.com/Chendemo12/micromq/src/engine"
@@ -35,39 +33,6 @@ func (m *MQ) initBroker() *MQ {
 	m.broker = engine.New(*m.conf.Broker)
 	m.broker.ReplaceTransfer(m.transfer)
 	m.broker.SetEventHandler(m.conf.Broker.EventHandler)
-
-	return m
-}
-
-// 初始化HTTP路由
-func (m *MQ) initEdge() *MQ {
-	mux := fastapi.New(fastapi.Config{
-		Title:                 m.conf.AppName,
-		Version:               m.conf.Version,
-		Description:           m.conf.AppName + " Api Service",
-		Logger:                m.logger,
-		Debug:                 m.conf.Debug,
-		ShutdownTimeout:       5,
-		DisableSwagAutoCreate: !python.Any(!m.conf.StatisticDisabled, m.conf.Debug),
-	})
-	m.faster = mux
-
-	eng := fiberWrapper.Default()
-	eng.App().Use(fiberWrapper.DefaultCORS)
-
-	mux.SetMux(eng)
-	mux.UseBeforeWrite(ErrorLog)
-
-	mux.IncludeRouter(routers.NewInfoRouter(mux.Config(), "/api/base"))
-	mux.IncludeRouter(&ExchangeRouter{})
-
-	if python.Any(m.conf.EdgeEnabled, m.conf.Debug) {
-		mux.IncludeRouter(&EdgeRouter{})
-	}
-
-	if python.Any(!m.conf.StatisticDisabled, m.conf.Debug) {
-		mux.IncludeRouter(&StatRouter{})
-	}
 
 	return m
 }
@@ -122,7 +87,7 @@ func (m *MQ) Serve() {
 		}
 	}()
 
-	m.initEdge()
+	m.faster = CreateEdge(m.conf)
 	m.faster.Run(m.conf.EdgeHttpHost, m.conf.EdgeHttpPort)
 }
 

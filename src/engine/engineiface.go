@@ -135,6 +135,12 @@ func (e *Engine) GetTopic(name []byte) *Topic {
 	return topic
 }
 
+// TopicExist 判断topic是否存在
+func (e *Engine) TopicExist(name []byte) bool {
+	_, ok := e.topics.Load(string(name))
+	return ok
+}
+
 // GetTopicOffset 查询指定topic当前的消息偏移量
 func (e *Engine) GetTopicOffset(name []byte) uint64 {
 	var offset uint64

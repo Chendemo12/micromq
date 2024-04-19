@@ -3,9 +3,13 @@ package mq
 import (
 	"fmt"
 	"github.com/Chendemo12/fastapi"
+	"github.com/Chendemo12/fastapi/middleware/fiberWrapper"
+	"github.com/Chendemo12/fastapi/middleware/routers"
 	"github.com/Chendemo12/fastapi/openapi"
 	"github.com/Chendemo12/fastapi/pathschema"
 	"github.com/Chendemo12/functools/helper"
+	"github.com/Chendemo12/functools/python"
+	"github.com/Chendemo12/micromq/src/engine"
 	"github.com/Chendemo12/micromq/src/proto"
 	"net/http"
 	"strings"
@@ -13,6 +17,36 @@ import (
 )
 
 var pathSchema = pathschema.NewComposition(&pathschema.Backslash{}, &pathschema.LowerCase{})
+
+func CreateEdge(conf *Config) *fastapi.Wrapper {
+	mux := fastapi.New(fastapi.Config{
+		Title:                 conf.AppName,
+		Version:               conf.Version,
+		Description:           conf.AppName + " Api Service",
+		Debug:                 conf.Debug,
+		ShutdownTimeout:       5,
+		DisableSwagAutoCreate: !python.Any(!conf.StatisticDisabled, conf.Debug),
+	})
+
+	eng := fiberWrapper.Default()
+	eng.App().Use(fiberWrapper.DefaultCORS)
+	eng.App().Use(NewAuthInterceptor(excludeRoutes, AuthInterceptor))
+
+	mux.SetMux(eng)
+	mux.UseBeforeWrite(ErrorLog)
+
+	mux.IncludeRouter(routers.NewInfoRouter(mux.Config(), "/api/base"))
+	mux.IncludeRouter(&ExchangeRouter{})
+
+	if python.Any(conf.EdgeEnabled, conf.Debug) {
+		mux.IncludeRouter(&EdgeRouter{})
+	}
+
+	if python.Any(!conf.StatisticDisabled, conf.Debug) {
+		mux.IncludeRouter(&StatRouter{})
+	}
+	return mux
+}
 
 type ConsumerStatistic struct {
 	Addr   string   `json:"addr" description:"连接地址"`
@@ -119,14 +153,14 @@ func (r *EdgeRouter) Description() map[string]string {
 func (r *EdgeRouter) PostProduct(c *fastapi.Context, form *ProducerForm) (*ProductResponse, error) {
 	clientIp := c.MuxContext().ClientIP()
 
-	c.Logger().Debug(fmt.Sprintf("receive: %s, from '%s' ", form, clientIp))
+	mq.Logger().Debug(fmt.Sprintf("receive: %s, from '%s' ", form, clientIp))
 
 	pm := &proto.PMessage{}
 	// 首先反序列化消息体
 	decode, err := helper.Base64Decode(form.Value)
 	if err != nil {
-		c.Logger().Info("message UnmarshalFailed about:", clientIp)
-		c.Logger().Info(err)
+		mq.Logger().Info("message UnmarshalFailed about:", clientIp)
+		mq.Logger().Info(err)
 		return &ProductResponse{
 			Status:       "UnmarshalFailed",
 			Offset:       0,
@@ -139,7 +173,7 @@ func (r *EdgeRouter) PostProduct(c *fastapi.Context, form *ProducerForm) (*Produ
 	// 解密消息
 	if form.IsEncrypt() {
 		if !mq.broker.IsTokenCorrect(form.Token) {
-			c.Logger().Info(clientIp, "has wrong token")
+			mq.Logger().Info(clientIp, "has wrong token")
 			return &ProductResponse{
 				Status:       proto.GetMessageResponseStatusText(proto.TokenIncorrectStatus),
 				Offset:       0,
@@ -150,7 +184,7 @@ func (r *EdgeRouter) PostProduct(c *fastapi.Context, form *ProducerForm) (*Produ
 			// 如果设置了密钥，HTTP传输的数据必须进行加密
 			_bytes, err := mq.broker.Crypto().Decrypt(decode)
 			if err != nil {
-				c.Logger().Warn(clientIp, "has correct token, but value decrypt failed: ", err)
+				mq.Logger().Warn(clientIp, "has correct token, but value decrypt failed: ", err)
 				return &ProductResponse{
 					Status:       proto.GetMessageResponseStatusText(proto.TokenIncorrectStatus),
 					Offset:       0,
@@ -170,7 +204,7 @@ func (r *EdgeRouter) PostProduct(c *fastapi.Context, form *ProducerForm) (*Produ
 	respForm.Offset = mq.broker.Publisher(pm)
 	respForm.ResponseTime = time.Now().Unix()
 
-	c.Logger().Debug(fmt.Sprintf("return: %s, to '%s' ", respForm, clientIp))
+	mq.Logger().Debug(fmt.Sprintf("return: %s, to '%s' ", respForm, clientIp))
 
 	return respForm, nil
 }
@@ -289,6 +323,7 @@ type ExchangeResp struct {
 	Result string `json:"result" validate:"required,oneof=ok fail" description:"交换结果"`
 	Code   string `json:"code,omitempty" description:"错误码"`
 	Err    string `json:"err,omitempty" description:"错误信息"`
+	ZhErr  string `json:"zh_err,omitempty" description:"中文错误信息"`
 }
 
 type ExchangeShowReq struct {
@@ -311,16 +346,28 @@ func (r *ExchangeRouter) Prefix() string { return "/api/exchange" }
 func (r *ExchangeRouter) PathSchema() pathschema.RoutePathSchema {
 	return pathSchema
 }
+
 func (r *ExchangeRouter) Summary() map[string]string {
 	return map[string]string{
 		"Exchange": "交换主题",
 	}
 }
+
 func (r *ExchangeRouter) Description() map[string]string {
 	return map[string]string{}
 }
 
 func (r *ExchangeRouter) PostAdd(c *fastapi.Context, form *ExchangeReq) (*ExchangeResp, error) {
+	srcExist := mq.broker.TopicExist([]byte(form.From))
+	if !srcExist {
+		return &ExchangeResp{
+			Result: "fail",
+			Code:   string(engine.ErrCodeSrcNotExist),
+			Err:    engine.ErrCodeEnDescription[engine.ErrCodeSrcNotExist],
+			ZhErr:  engine.ErrCodeZhDescription[engine.ErrCodeSrcNotExist],
+		}, nil
+	}
+
 	return nil, nil
 }
 
@@ -335,13 +382,13 @@ func (r *ExchangeRouter) GetShow(c *fastapi.Context, form *ExchangeShowReq) ([]*
 // ====
 
 func ErrorLog(c *fastapi.Context) {
-	//c.Logger().Info(fmt.Sprintf("path: '%s' elapsed time: %s",
+	//mq.Logger().Info(fmt.Sprintf("path: '%s' elapsed time: %s",
 	//	c.MuxContext().Path(), time.Now().Sub(c.GetTime(config.KeyElapsedTime))))
 
 	if c.Response().StatusCode != http.StatusOK && c.Response().StatusCode != http.StatusUnauthorized {
 		if strings.HasPrefix(c.Response().ContentType, openapi.MIMEApplicationJSON) {
 			bs, _ := c.Marshal(c.Response().Content)
-			c.Logger().Warn(fmt.Sprintf("path: %s, error: %s", c.MuxContext().Path(), bs))
+			mq.Logger().Warn(fmt.Sprintf("path: %s, error: %s", c.MuxContext().Path(), bs))
 		}
 	}
 
