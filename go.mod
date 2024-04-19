@@ -3,7 +3,7 @@ module github.com/Chendemo12/micromq
 go 1.21
 
 require (
-	github.com/Chendemo12/fastapi v0.2.6
+	github.com/Chendemo12/fastapi v0.2.7-pre
 	github.com/Chendemo12/functools v0.2.5
 	github.com/coocood/freecache v1.2.4
 	github.com/gofiber/fiber/v2 v2.52.2

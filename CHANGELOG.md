@@ -7,6 +7,10 @@
 - upgrade fastapi:v0.2.5 and functools:v0.2.5.
 - 支持不受限制的连接数；
 
+### Fix
+
+- 修复`Wrapper.Shutdown`的错误；
+
 ### BREAKING
 
 - 修改环境变量 `BROKER_TOKEN` -> `BROKER_PASSWORD`
