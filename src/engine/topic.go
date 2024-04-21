@@ -117,6 +117,46 @@ func (t *Topic) consume() {
 	}
 }
 
+func (t *Topic) exchangeTo(pm *proto.PMessage) {
+	work := &sync.WaitGroup{}
+
+	t.RangeForwarding(func(to *Topic) bool {
+		target := to
+		work.Add(1)
+		go func() {
+			defer work.Done()
+			// TODO 首先把pm复制一份, 后期可以优化
+			newPm := cpmp.GetPM()
+			newPm.CopyFrom(pm)
+			// 修改topic
+			newPm.Topic = make([]byte, len(to.Name))
+			copy(newPm.Topic, to.Name)
+			target.exchangeFrom(newPm)
+		}()
+		return true
+	})
+
+	work.Wait()
+}
+
+func (t *Topic) exchangeFrom(pm *proto.PMessage) {
+	offset := t.refreshOffset()
+	cm := cpmp.GetCM() // cm.PM is nil
+
+	binary.BigEndian.PutUint64(cm.Offset, offset)
+	binary.BigEndian.PutUint64(cm.ProductTime, uint64(time.Now().Unix()))
+	cm.PM = pm
+
+	// pm:
+	//	1. Engine.handlePMessage 创建
+	//	2. 1调用 Engine.Publisher 传递给 Topic.Publisher
+	//	3. Topic.Publisher 绑定到cm上
+	//	4. CPMPool 释放CM时会同时释放PM
+	//
+
+	t.queue <- cm
+}
+
 // RangeConsumer 逐个迭代内部消费者, if false returned, for-loop will stop
 func (t *Topic) RangeConsumer(fn func(c *Consumer) bool) {
 	t.consumers.Range(func(key, value any) bool {
@@ -157,6 +197,9 @@ func (t *Topic) Publisher(pm *proto.PMessage) uint64 {
 	//
 
 	t.queue <- cm
+
+	// 转发到其他topic内
+	t.exchangeTo(pm)
 
 	return offset
 }

@@ -175,6 +175,15 @@ func (m *PMessage) build() ([]byte, error) {
 	return slice, nil
 }
 
+func (m *PMessage) CopyFrom(pm *PMessage) {
+	m.Topic = make([]byte, len(pm.Topic))
+	copy(m.Topic, pm.Topic)
+	m.Key = make([]byte, len(pm.Key))
+	copy(m.Key, pm.Key)
+	m.Value = make([]byte, len(pm.Value))
+	copy(m.Value, pm.Value)
+}
+
 // ========================================== 消费者消息记录协议定义 ==========================================
 
 // CMessage 消费者消息记录, 不允许复制
