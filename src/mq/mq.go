@@ -97,6 +97,40 @@ func (m *MQ) Stop() {
 	m.faster.Shutdown()
 }
 
+// AddExchange 添加一个topic间的数据交换
+func (m *MQ) AddExchange(from, to string) error {
+	if from == to {
+		return engine.ErrExchangeSame
+	}
+
+	topic, exist := m.broker.FindTopic(from)
+	if !exist {
+		return engine.ErrSrcNotExist
+	}
+	dstTopic, exist := m.broker.FindTopic(to)
+	if !exist {
+		return engine.ErrDstNotExist
+	}
+
+	_, err := topic.AddForwarding(dstTopic)
+	return err
+}
+
+// DelExchange 删除一个topic间的数据交换
+func (m *MQ) DelExchange(from, to string) error {
+	if from == to {
+		return engine.ErrExchangeSame
+	}
+
+	topic, exist := m.broker.FindTopic(from)
+	if !exist {
+		return engine.ErrSrcNotExist
+	}
+
+	topic.DelForwarding([]byte(to))
+	return nil
+}
+
 func New(cs ...Config) *MQ {
 	conf := &Config{
 		AppName:      defaultConf.AppName,

@@ -136,9 +136,18 @@ func (e *Engine) GetTopic(name []byte) *Topic {
 }
 
 // TopicExist 判断topic是否存在
-func (e *Engine) TopicExist(name []byte) bool {
-	_, ok := e.topics.Load(string(name))
+func (e *Engine) TopicExist(name string) bool {
+	_, ok := e.topics.Load(name)
 	return ok
+}
+
+// FindTopic 查找topic
+func (e *Engine) FindTopic(name string) (*Topic, bool) {
+	v, ok := e.topics.Load(name)
+	if ok {
+		return v.(*Topic), true
+	}
+	return nil, false
 }
 
 // GetTopicOffset 查询指定topic当前的消息偏移量
@@ -168,7 +177,11 @@ func (e *Engine) RemoveConsumer(addr string) {
 
 	for _, name := range c.Conf.Topics {
 		// 从相关 topic 中删除消费者记录
-		e.GetTopic([]byte(name)).RemoveConsumer(addr)
+		topic, est := e.FindTopic(name)
+		if !est {
+			continue
+		}
+		topic.RemoveConsumer(addr)
 	}
 
 	c.reset()

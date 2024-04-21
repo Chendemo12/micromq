@@ -37,6 +37,7 @@ func CreateEdge(conf *Config) *fastapi.Wrapper {
 
 	mux.IncludeRouter(routers.NewInfoRouter(mux.Config(), "/api/base"))
 	mux.IncludeRouter(&ExchangeRouter{})
+	mux.SetRouteErrorFormatter(ErrorFormatter)
 
 	if python.Any(conf.EdgeEnabled, conf.Debug) {
 		mux.IncludeRouter(&EdgeRouter{})
@@ -307,6 +308,29 @@ func (r *StatRouter) GetTopicConsumers(c *fastapi.Context) ([]*TopicConsumerStat
 
 // ====
 
+type OperationResult struct {
+	Result string `json:"result" validate:"required,oneof=ok fail" description:"删除结果"`
+	Err    string `json:"err,omitempty" description:"错误原因"`
+}
+
+func Result(err error) *OperationResult {
+	if err != nil {
+		return &OperationResult{
+			Result: "fail",
+			Err:    err.Error(),
+		}
+	}
+
+	return &OperationResult{
+		Result: "ok",
+	}
+}
+
+type TopicDeleteReq struct {
+	Topic string `json:"topic" validate:"required,gte=1" description:"主题名称"`
+	Force bool   `json:"force" description:"强制删除主题，默认情况下如果topic有消费者连接，则不允许删除，设为true则首先关闭连接后再删除"`
+}
+
 type ExchangeReq struct {
 	From string `json:"from" validate:"required,gte=1" description:"源TOPIC"`
 	To   string `json:"to" validate:"required,gte=1" description:"目标TOPIC"`
@@ -315,26 +339,32 @@ type ExchangeReq struct {
 func (m *ExchangeReq) String() string {
 	return fmt.Sprintf("<ExchangeReq> from [ %s ] to [ %s ]", m.From, m.To)
 }
+
 func (m *ExchangeReq) SchemaDesc() string {
 	return "设置topic数据交换"
 }
 
 type ExchangeResp struct {
-	Result string `json:"result" validate:"required,oneof=ok fail" description:"交换结果"`
-	Code   string `json:"code,omitempty" description:"错误码"`
-	Err    string `json:"err,omitempty" description:"错误信息"`
-	ZhErr  string `json:"zh_err,omitempty" description:"中文错误信息"`
+	OperationResult
+	//Code   string `json:"code,omitempty" description:"错误码"`
+	//ZhErr  string `json:"zh_err,omitempty" description:"中文错误信息"`
 }
 
 type ExchangeShowReq struct {
-	Via string `query:"via" json:"via" validate:"required,gte=1" description:"源TOPIC"`
+	Via string `query:"via" json:"via" description:"源TOPIC,空则查询所有"`
 }
 
 func (m *ExchangeResp) String() string {
 	return fmt.Sprintf("<ExchangeResp> result [ %s ]", m.Result)
 }
+
 func (m *ExchangeResp) SchemaDesc() string {
 	return "交换结果"
+}
+
+type ExchangeShowResp struct {
+	From string `json:"from" validate:"required,gte=1" description:"源TOPIC"`
+	To   string `json:"to" validate:"required,gte=1" description:"目标TOPIC"`
 }
 
 type ExchangeRouter struct {
@@ -357,26 +387,56 @@ func (r *ExchangeRouter) Description() map[string]string {
 	return map[string]string{}
 }
 
-func (r *ExchangeRouter) PostAdd(c *fastapi.Context, form *ExchangeReq) (*ExchangeResp, error) {
-	srcExist := mq.broker.TopicExist([]byte(form.From))
-	if !srcExist {
-		return &ExchangeResp{
-			Result: "fail",
-			Code:   string(engine.ErrCodeSrcNotExist),
-			Err:    engine.ErrCodeEnDescription[engine.ErrCodeSrcNotExist],
-			ZhErr:  engine.ErrCodeZhDescription[engine.ErrCodeSrcNotExist],
-		}, nil
+// DeleteDelTopic 删除主题
+func (r *ExchangeRouter) DeleteDelTopic(c *fastapi.Context, form *TopicDeleteReq) (*OperationResult, error) {
+	err := mq.broker.DeleteTopic(form.Topic, form.Force)
+
+	return Result(err), nil
+}
+
+func (r *ExchangeRouter) PostAddRoute(c *fastapi.Context, form *ExchangeReq) (*OperationResult, error) {
+	err := mq.AddExchange(form.From, form.To)
+	return Result(err), nil
+}
+
+func (r *ExchangeRouter) DeleteDelRoute(c *fastapi.Context, form *ExchangeReq) (*OperationResult, error) {
+	err := mq.DelExchange(form.From, form.To)
+	return Result(err), nil
+}
+
+func (r *ExchangeRouter) GetShowRoute(c *fastapi.Context, form *ExchangeShowReq) ([]*ExchangeShowResp, error) {
+	results := make([]*ExchangeShowResp, 0)
+
+	if form.Via == "" {
+		// 查询所有topic
+		mq.broker.RangeTopic(func(topic *engine.Topic) bool {
+			topic.RangeForwarding(func(to *engine.Topic) bool {
+				results = append(results, &ExchangeShowResp{
+					From: string(topic.Name),
+					To:   string(to.Name),
+				})
+				return true
+			})
+
+			return true
+		})
+
+	} else {
+		topic, exist := mq.broker.FindTopic(form.Via)
+		if !exist {
+			return nil, engine.ErrSrcNotExist
+		}
+
+		topic.RangeForwarding(func(to *engine.Topic) bool {
+			results = append(results, &ExchangeShowResp{
+				From: string(topic.Name),
+				To:   string(to.Name),
+			})
+			return true
+		})
 	}
 
-	return nil, nil
-}
-
-func (r *ExchangeRouter) DeleteDel(c *fastapi.Context, form *ExchangeReq) (*ExchangeResp, error) {
-	return nil, nil
-}
-
-func (r *ExchangeRouter) GetShow(c *fastapi.Context, form *ExchangeShowReq) ([]*ExchangeReq, error) {
-	return nil, nil
+	return results, nil
 }
 
 // ====
@@ -393,4 +453,16 @@ func ErrorLog(c *fastapi.Context) {
 	}
 
 	return
+}
+
+type ErrorResponse struct {
+	Code    string `json:"code"`
+	Message string `json:"message"`
+}
+
+func ErrorFormatter(c *fastapi.Context, err error) (int, any) {
+	return 400, &ErrorResponse{
+		Code:    "400",
+		Message: err.Error(),
+	}
 }

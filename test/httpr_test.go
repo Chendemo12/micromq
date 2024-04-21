@@ -56,7 +56,7 @@ func TestSdkHttpProducer_Post(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := sdk.NewHttpProducer(tt.fields.host, tt.fields.port)
+			p := sdk.NewHttpProducer(tt.fields.host + ":" + tt.fields.port)
 			p.SetToken(p.CreateSHA(tt.fields.token))
 
 			got, err := p.Post(tt.args.topic, tt.args.key, tt.args.form)

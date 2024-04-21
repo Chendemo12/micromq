@@ -296,10 +296,43 @@ func (e *Engine) distribute(frame *proto.TransferFrame, con transfer.Conn) {
 
 // 断开与客户端的连接
 func (e *Engine) closeConnection(addr string) {
+	if addr == "" {
+		return
+	}
 	err := e.transfer.Close(addr)
 	if err != nil {
 		e.Logger().Warn("failed to disconnect with: ", err.Error())
 	}
+}
+
+// DeleteTopic 关闭topic内的消费者连接，并删除topic
+func (e *Engine) DeleteTopic(name string, force bool) error {
+	topic, ok := e.FindTopic(name)
+	if !ok { // topic不存在，直接返回成功
+		return nil
+	}
+	consumerNum := 0
+	topic.RangeConsumer(func(c *Consumer) bool {
+		consumerNum++
+		return false
+	})
+	if consumerNum > 0 && !force { // topic存在消费者，且未设置强制删除，则返回错误
+		return errors.New("topic is in use")
+	}
+
+	topic.RangeConsumer(func(c *Consumer) bool {
+		e.closeConnection(c.Addr) // 此处会触发 onClientClosed 回调，并从 consumers / producers 中删除连接
+		return true
+	})
+
+	// 删除topic数据交换
+	e.RangeTopic(func(topic *Topic) bool {
+		topic.DelForwarding([]byte(name))
+		return true
+	})
+
+	e.topics.Delete(name)
+	return nil
 }
 
 type EPool struct {

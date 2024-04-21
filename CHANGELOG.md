@@ -1,5 +1,11 @@
 # MICRO-MQ
 
+## v0.3.10 - 20240421
+
+### Feat
+
+- add Exchange router;
+
 ## v0.3.9 - 20240324
 
 ### Feat

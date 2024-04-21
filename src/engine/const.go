@@ -15,35 +15,10 @@ const ForwardingAddrsMaxNum = 1 << 4
 
 // const ForwardingAddrsMaxNum = 1 << 8
 
-type ErrCode string
-
-const ErrCodeOK ErrCode = "1"
-
-// exchange add 0e00
-const (
-	ErrCodeSrcNotExist ErrCode = "0e0001"
-	ErrCodeDstNotExist ErrCode = "0e0002"
-	// ErrCodeExchangeSame 目标转发器和自己一样
-	ErrCodeExchangeSame ErrCode = "0e0003"
-	// ErrCodeExchangeIsFull 超出最大数量限制
-	ErrCodeExchangeIsFull ErrCode = "0e0004"
+var (
+	ErrSrcNotExist    = errors.New("source topic not exist")
+	ErrDstNotExist    = errors.New("destination topic not exist")
+	ErrExchangeSame   = errors.New("exchange is same") // 目标转发器和自己一样
+	ErrExchangeIsFull = errors.New("exchange is full") // 超出最大数量限制
+	ErrExchangeExist  = errors.New("exchange exist")   // 转发目标已存在
 )
-
-// exchange del 0e01
-const ()
-
-var ErrCodeZhDescription = map[ErrCode]string{
-	ErrCodeOK:             "成功",
-	ErrCodeSrcNotExist:    "源不存在",
-	ErrCodeDstNotExist:    "目标不存在",
-	ErrCodeExchangeSame:   "目标转发器和自己一样",
-	ErrCodeExchangeIsFull: "超出最大数量限制",
-}
-
-var ErrCodeEnDescription = map[ErrCode]string{
-	ErrCodeOK:             "OK",
-	ErrCodeSrcNotExist:    "Source not exist",
-	ErrCodeDstNotExist:    "Destination not exist",
-	ErrCodeExchangeSame:   "Exchange is same",
-	ErrCodeExchangeIsFull: "Exchange is full",
-}

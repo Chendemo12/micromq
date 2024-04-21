@@ -35,38 +35,37 @@ type User struct {
 
 // AuthInterceptor 登陆拦截器
 func AuthInterceptor(c *fiber.Ctx) error {
-	defaultValue := "abc"
-	_ = cache.Set(CacheAuthPrefix+defaultValue, &User{Email: "abc", Password: "123"}, 60)
-	// TODO:
+	defaultValue := ""
+	//_ = cache.Set(CacheAuthPrefix+defaultValue, &User{Email: "abc", Password: "123"}, 60)
 
 	token := c.Get(AuthHeaderKey, defaultValue)
 	if token == "" {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-			"code":    "401",
-			"message": "Unauthorized",
+		return c.Status(fiber.StatusUnauthorized).JSON(&ErrorResponse{
+			Code:    "401",
+			Message: "Unauthorized",
 		})
 	}
 
 	anotherValue := c.Get(AnotherAuthKey, defaultValue)
 	if anotherValue == "" {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-			"code":    "401",
-			"message": "Unauthorized",
+		return c.Status(fiber.StatusUnauthorized).JSON(&ErrorResponse{
+			Code:    "401",
+			Message: "Unauthorized",
 		})
 	}
 
 	// 获得用户登陆信息
 	user, err := cache.Get[*User](CacheAuthPrefix + token)
 	if err != nil {
-		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{
-			"code":    "500",
-			"message": err.Error(),
+		return c.Status(fiber.StatusInternalServerError).JSON(&ErrorResponse{
+			Code:    "500",
+			Message: err.Error(),
 		})
 	}
 	if user == nil {
-		return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{
-			"code":    "401",
-			"message": "Unauthorized",
+		return c.Status(fiber.StatusUnauthorized).JSON(&ErrorResponse{
+			Code:    "401",
+			Message: "Unauthorized",
 		})
 	}
 
