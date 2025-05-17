@@ -206,6 +206,8 @@ func (client *Producer) Start() error {
 func (client *Producer) Stop() {
 	client.broker.cancel()
 	_ = client.broker.link.Close()
+	close(client.dingDong)
+	close(client.queue)
 }
 
 // ==================================== methods shortcut ====================================
