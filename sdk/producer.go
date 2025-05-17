@@ -1,10 +1,9 @@
 package sdk
 
 import (
-	"encoding/json"
-
 	"time"
 
+	"github.com/Chendemo12/functools/helper"
 	"github.com/Chendemo12/functools/logger"
 	"github.com/Chendemo12/micromq/src/proto"
 	"github.com/Chendemo12/micromq/src/transfer"
@@ -80,8 +79,8 @@ func (client *Producer) sendToServer() {
 		case pm := <-client.queue:
 			frame := framePool.Get()
 			serverPM := &proto.PMessage{
-				Topic: []byte(pm.Topic),
-				Key:   []byte(pm.Key),
+				Topic: helper.S2B(pm.Topic),
+				Key:   helper.S2B(pm.Key),
 				Value: pm.Value,
 			}
 
@@ -213,16 +212,16 @@ func (client *Producer) Stop() {
 
 // JSONMarshal 序列化方法
 func (client *Producer) JSONMarshal(v any) ([]byte, error) {
-	return json.Marshal(v)
+	return helper.JsonMarshal(v)
 }
 
 func (client *Producer) JSONUnmarshal(data []byte, v any) error {
-	return json.Unmarshal(data, v)
+	return helper.JsonUnmarshal(data, v)
 }
 
-// Deprecated:Beautify 格式化显示字节流
+// Beautify 格式化显示字节流
 func (client *Producer) Beautify(data []byte) string {
-	return ""
+	return helper.HexBeautify(data)
 }
 
 // NewProducer 创建异步生产者,需手动启动

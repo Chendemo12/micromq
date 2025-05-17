@@ -29,7 +29,7 @@ func TestSdkHttpProducer_Post(t *testing.T) {
 			name: "TestSdkHttpProducer_Post",
 			fields: fields{
 				host:      "127.0.0.1",
-				port:      "7280",
+				port:      "7271",
 				path:      "api/edge/product",
 				asyncPath: "api/edge/product/async",
 				token:     "123456789",
@@ -56,7 +56,7 @@ func TestSdkHttpProducer_Post(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			p := sdk.NewHttpProducer(tt.fields.host, tt.fields.port)
+			p := sdk.NewHttpProducer(tt.fields.host + ":" + tt.fields.port)
 			p.SetToken(p.CreateSHA(tt.fields.token))
 
 			got, err := p.Post(tt.args.topic, tt.args.key, tt.args.form)

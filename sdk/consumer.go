@@ -1,10 +1,10 @@
 package sdk
 
 import (
-	"encoding/json"
 	"sync"
 	"time"
 
+	"github.com/Chendemo12/functools/helper"
 	"github.com/Chendemo12/functools/logger"
 	"github.com/Chendemo12/functools/python"
 	"github.com/Chendemo12/micromq/src/proto"
@@ -148,11 +148,11 @@ func (client *Consumer) Stop() {
 
 // JSONUnmarshal 反序列化方法
 func (client *Consumer) JSONUnmarshal(data []byte, v any) error {
-	return json.Unmarshal(data, v)
+	return helper.JsonUnmarshal(data, v)
 }
 
 func (client *Consumer) JSONMarshal(v any) ([]byte, error) {
-	return json.Marshal(v)
+	return helper.JsonMarshal(v)
 }
 
 // NewConsumer 创建一个消费者，需要手动Start

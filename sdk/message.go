@@ -2,12 +2,11 @@ package sdk
 
 import (
 	"encoding/binary"
-	"encoding/json"
 	"fmt"
 	"time"
 
+	"github.com/Chendemo12/functools/helper"
 	"github.com/Chendemo12/micromq/src/proto"
-	"github.com/goccy/go-json"
 )
 
 // ConsumerMessage 用于SDK直接传递给消费者的单条数据消息
@@ -52,7 +51,7 @@ func (m *ConsumerMessage) Reset() {
 
 // ShouldBindJSON 将数据反序列化到一个JSON模型上
 func (m *ConsumerMessage) ShouldBindJSON(v any) error {
-	return json.Unmarshal(m.Value, v)
+	return helper.JsonUnmarshal(m.Value, v)
 }
 
 // ProducerMessage 生产者直接发送的数据
@@ -86,7 +85,7 @@ func (m *ProducerMessage) Reset() {
 
 // BindFromJSON 从JSON模型获取序列化数据
 func (m *ProducerMessage) BindFromJSON(v any) error {
-	_bytes, err := json.Marshal(v)
+	_bytes, err := helper.JsonMarshal(v)
 	if err != nil {
 		return err
 	}

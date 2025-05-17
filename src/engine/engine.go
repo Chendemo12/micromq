@@ -8,20 +8,18 @@ import (
 	"time"
 
 	"github.com/Chendemo12/functools/cronjob"
-	logger "github.com/Chendemo12/functools/zaplog"
+	"github.com/Chendemo12/functools/logger"
 	"github.com/Chendemo12/micromq/src/proto"
 	"github.com/Chendemo12/micromq/src/transfer"
-	"go.uber.org/zap"
 )
-
-var Mylogger *zap.Logger
 
 type Config struct {
 	Host             string          `json:"host"`
 	Port             string          `json:"port"`
-	MaxOpenConn      int             `json:"max_open_conn"` // 允许的最大连接数, 即 生产者+消费者最多有 MaxOpenConn 个
+	MaxOpenConn      int             `json:"max_open_conn"` // 允许的最大连接数, 即 生产者+消费者最多有 MaxOpenConn 个, 为0则不限制
 	BufferSize       int             `json:"buffer_size"`   // 生产者消息历史记录最大数量
 	HeartbeatTimeout float64         `json:"heartbeat_timeout"`
+	Logger           logger.Iface    `json:"-"`
 	Token            string          `json:"-"` // 注册认证密钥
 	EventHandler     EventHandler    `json:"-"` // 事件触发器
 	Ctx              context.Context `json:"-"`
@@ -32,8 +30,9 @@ func (c *Config) clean() *Config {
 	if !(c.BufferSize > 0 && c.BufferSize <= 5000) {
 		c.BufferSize = 100
 	}
-	if !(c.MaxOpenConn > 0 && c.MaxOpenConn <= 100) {
-		c.MaxOpenConn = 50
+
+	if c.Logger == nil {
+		c.Logger = logger.NewDefaultLogger()
 	}
 
 	if c.EventHandler == nil {
@@ -83,7 +82,7 @@ func (e *Engine) beforeServe() *Engine {
 	e.producers = make([]*Producer, e.conf.MaxOpenConn)
 	e.consumers = make([]*Consumer, e.conf.MaxOpenConn)
 
-	for i := 0; i < e.conf.MaxOpenConn; i++ {
+	for i := 0; i < len(e.consumers); i++ {
 		e.consumers[i] = &Consumer{
 			index: i,
 			mu:    &sync.Mutex{},
@@ -91,7 +90,8 @@ func (e *Engine) beforeServe() *Engine {
 			Addr:  "",
 			Conn:  nil,
 		}
-
+	}
+	for i := 0; i < len(e.producers); i++ {
 		e.producers[i] = &Producer{
 			index: i,
 			mu:    &sync.Mutex{},
@@ -104,7 +104,7 @@ func (e *Engine) beforeServe() *Engine {
 	// 监视器
 	e.monitor = &Monitor{broker: e}
 	e.stat = &Statistic{broker: e}
-	e.scheduler = cronjob.NewScheduler(e.Ctx(), Mylogger.Sugar())
+	e.scheduler = cronjob.NewScheduler(e.Ctx(), e.Logger())
 	e.scheduler.AddCronjob(e.monitor)
 	// 初始化池
 	e.ePool = &EPool{
@@ -132,6 +132,8 @@ func (e *Engine) bindTransfer() *Engine {
 	e.transfer.SetHost(e.conf.Host)
 	e.transfer.SetPort(e.conf.Port)
 	e.transfer.SetMaxOpenConn(e.conf.MaxOpenConn)
+	e.transfer.SetLogger(e.Logger())
+
 	e.transfer.SetOnConnectedHandler(e.whenClientConnected)
 	e.transfer.SetOnClosedHandler(e.whenClientClosed)
 	e.transfer.SetOnReceivedHandler(e.distribute)
@@ -185,23 +187,52 @@ func (e *Engine) whenClientClosed(addr string) {
 
 // 查找一个空闲的 生产者槽位，若未找到则返回 -1，应在查找之前主动加锁
 func (e *Engine) findProducerSlot() int {
-	for i := 0; i < e.conf.MaxOpenConn; i++ {
+	index := -1
+	for i := 0; i < len(e.producers); i++ {
 		// cannot be nil
 		if e.producers[i].IsFree() {
-			return i
+			index = i
+			break
 		}
 	}
-	return -1
+
+	if index == -1 && e.conf.MaxOpenConn <= 0 {
+		// 不限制连接数量，追加空间
+		index = len(e.consumers)
+		e.producers = append(e.producers, &Producer{
+			index: index,
+			mu:    &sync.Mutex{},
+			Conf:  &ProducerConfig{},
+			Addr:  "",
+			Conn:  nil,
+		})
+	}
+
+	return index
 }
 
 // 查找一个空闲的 消费者槽位，若未找到则返回 -1，应在查找之前主动加锁
 func (e *Engine) findConsumerSlot() int {
-	for i := 0; i < e.conf.MaxOpenConn; i++ {
+	index := -1
+	for i := 0; i < len(e.consumers); i++ {
 		if e.consumers[i].IsFree() {
-			return i
+			index = i
+			break
 		}
 	}
-	return -1
+	if index == -1 && e.conf.MaxOpenConn <= 0 {
+		// 不限制连接数量，追加空间
+		index = len(e.consumers)
+		e.consumers = append(e.consumers, &Consumer{
+			index: index,
+			mu:    &sync.Mutex{},
+			Conf:  &ConsumerConfig{},
+			Addr:  "",
+			Conn:  nil,
+		})
+	}
+
+	return index
 }
 
 // 将一系列处理过程组合成一条链
@@ -222,7 +253,7 @@ func (e *Engine) flowToHookHandler(frame *proto.TransferFrame, con transfer.Conn
 
 	// 业务处理错误, 需要返回错误响应
 	if err := args.StopError(); err != nil {
-		logger.Warn(fmt.Sprintf(
+		e.Logger().Warn(fmt.Sprintf(
 			"<frame:%s> processing complete, but err: %v", frame.MessageText(), err,
 		))
 	}
@@ -258,7 +289,7 @@ func (e *Engine) distribute(frame *proto.TransferFrame, con transfer.Conn) {
 	_, err = frame.WriteTo(con)
 	err = con.Drain()
 	if err != nil {
-		logger.Warn(fmt.Sprintf(
+		e.Logger().Warn(fmt.Sprintf(
 			"send <message:%d> to '%s' failed: %s", frame.Type(), con.Addr(), err,
 		))
 	}
@@ -266,10 +297,43 @@ func (e *Engine) distribute(frame *proto.TransferFrame, con transfer.Conn) {
 
 // 断开与客户端的连接
 func (e *Engine) closeConnection(addr string) {
+	if addr == "" {
+		return
+	}
 	err := e.transfer.Close(addr)
 	if err != nil {
-		logger.Warn("failed to disconnect with: ", err.Error())
+		e.Logger().Warn("failed to disconnect with: ", err.Error())
 	}
+}
+
+// DeleteTopic 关闭topic内的消费者连接，并删除topic
+func (e *Engine) DeleteTopic(name string, force bool) error {
+	topic, ok := e.FindTopic(name)
+	if !ok { // topic不存在，直接返回成功
+		return nil
+	}
+	consumerNum := 0
+	topic.RangeConsumer(func(c *Consumer) bool {
+		consumerNum++
+		return false
+	})
+	if consumerNum > 0 && !force { // topic存在消费者，且未设置强制删除，则返回错误
+		return errors.New("topic is in use")
+	}
+
+	topic.RangeConsumer(func(c *Consumer) bool {
+		e.closeConnection(c.Addr) // 此处会触发 onClientClosed 回调，并从 consumers / producers 中删除连接
+		return true
+	})
+
+	// 删除topic数据交换
+	e.RangeTopic(func(topic *Topic) bool {
+		topic.DelForwarding([]byte(name))
+		return true
+	})
+
+	e.topics.Delete(name)
+	return nil
 }
 
 type EPool struct {

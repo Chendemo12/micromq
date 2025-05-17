@@ -1,6 +1,7 @@
 package transfer
 
 import (
+	"github.com/Chendemo12/functools/logger"
 	"github.com/Chendemo12/micromq/src/proto"
 )
 
@@ -21,8 +22,9 @@ type Conn interface {
 // Transfer Engine 传输层实现
 type Transfer interface {
 	SetHost(host string)
-	SetPort(port string)    // 设置绑定端口
-	SetMaxOpenConn(num int) // 设置最大连接数量
+	SetPort(port string)           // 设置绑定端口
+	SetMaxOpenConn(num int)        // 设置最大连接数量
+	SetLogger(logger logger.Iface) // logger
 	// SetOnConnectedHandler 设置当客户端连接成功时的事件
 	SetOnConnectedHandler(fn func(c Conn))
 	// SetOnClosedHandler 设置当客户端断开连接时的事件

@@ -1,10 +1,37 @@
 # MICRO-MQ
 
-## v0.4.0 - 20250517
+## v0.3.11 - 20250517
 
 ### Feat
 
-- 升级`fastapi：v0.3.0`
+- upgrade fastapi:v0.3.0 and functools:v0.3.0.
+
+## v0.3.10 - 20240421
+
+### Feat
+
+- add Exchange router;
+
+## v0.3.9 - 20240324
+
+### Feat
+
+- upgrade fastapi:v0.2.5 and functools:v0.2.5.
+- 支持不受限制的连接数；
+
+### Fix
+
+- 修复`Wrapper.Shutdown`的错误；
+
+### BREAKING
+
+- 修改环境变量 `BROKER_TOKEN` -> `BROKER_PASSWORD`
+
+## v0.3.8 - 20240229
+
+### Feat
+
+- upgrade fastapi:v0.2.2 and functools:v0.2.4.
 
 ## v0.3.7 - 20231020
 

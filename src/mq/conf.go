@@ -1,6 +1,7 @@
 package mq
 
 import (
+	"github.com/Chendemo12/functools/logger"
 	"github.com/Chendemo12/micromq/src/engine"
 	"github.com/Chendemo12/micromq/src/proto"
 )
@@ -23,13 +24,14 @@ var defaultConf = Config{
 	AppName:      "micromq",
 	Version:      "1.0.0",
 	EdgeHttpHost: "0.0.0.0",
-	EdgeHttpPort: "7280",
+	EdgeHttpPort: "7271",
 	Broker: &engine.Config{
 		Host:             "0.0.0.0",
 		Port:             "7270",
-		MaxOpenConn:      50,
+		MaxOpenConn:      100,
 		BufferSize:       100,
 		HeartbeatTimeout: 60,
+		Logger:           logger.NewDefaultLogger(),
 		Token:            "",
 		EventHandler:     &CoreEventHandler{},
 		Ctx:              nil,

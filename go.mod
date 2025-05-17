@@ -7,11 +7,13 @@ toolchain go1.23.8
 require (
 	github.com/Chendemo12/fastapi v0.3.0
 	github.com/Chendemo12/functools v0.3.0
+	github.com/coocood/freecache v1.2.4
 	github.com/gofiber/fiber/v2 v2.52.6
 )
 
 require (
 	github.com/andybalholm/brotli v1.1.0 // indirect
+	github.com/cespare/xxhash/v2 v2.3.0 // indirect
 	github.com/fsnotify/fsnotify v1.8.0 // indirect
 	github.com/gabriel-vasile/mimetype v1.4.8 // indirect
 	github.com/go-playground/locales v0.14.1 // indirect

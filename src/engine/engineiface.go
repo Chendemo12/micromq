@@ -9,12 +9,14 @@ import (
 	"sync"
 	"time"
 
-	logger "github.com/Chendemo12/functools/zaplog"
+	"github.com/Chendemo12/functools/logger"
 	"github.com/Chendemo12/micromq/src/proto"
 	"github.com/Chendemo12/micromq/src/transfer"
 )
 
 func (e *Engine) Ctx() context.Context { return e.conf.Ctx }
+
+func (e *Engine) Logger() logger.Iface { return e.conf.Logger }
 
 func (e *Engine) EventHandler() EventHandler { return e.conf.EventHandler }
 
@@ -36,7 +38,7 @@ func (e *Engine) SetEventHandler(handler EventHandler) *Engine {
 
 // SetTopicHistoryBufferSize 设置topic历史数据缓存大小, 对于修改前已经创建的topic不受影响
 //
-//	@param size	int 历史数据缓存大小,[1, 10000)
+//	@param	size	int	历史数据缓存大小,[1, 10000)
 func (e *Engine) SetTopicHistoryBufferSize(size int) *Engine {
 	if size > 0 && size < 10000 {
 		e.conf.topicHistorySize = size
@@ -75,7 +77,7 @@ func (e *Engine) QueryProducer(addr string) (*Producer, bool) {
 
 // RangeConsumer 遍历连接的消费者, if false returned, for-loop will stop
 func (e *Engine) RangeConsumer(fn func(c *Consumer) bool) {
-	for i := 0; i < e.conf.MaxOpenConn; i++ {
+	for i := 0; i < len(e.consumers); i++ {
 		if e.consumers[i].IsFree() {
 			continue
 		}
@@ -88,7 +90,7 @@ func (e *Engine) RangeConsumer(fn func(c *Consumer) bool) {
 
 // RangeProducer 遍历连接的生产者, if false returned, for-loop will stop
 func (e *Engine) RangeProducer(fn func(p *Producer) bool) {
-	for i := 0; i < e.conf.MaxOpenConn; i++ {
+	for i := 0; i < len(e.producers); i++ {
 		if e.producers[i].IsFree() {
 			continue
 		}
@@ -134,6 +136,21 @@ func (e *Engine) GetTopic(name []byte) *Topic {
 	return topic
 }
 
+// TopicExist 判断topic是否存在
+func (e *Engine) TopicExist(name string) bool {
+	_, ok := e.topics.Load(name)
+	return ok
+}
+
+// FindTopic 查找topic
+func (e *Engine) FindTopic(name string) (*Topic, bool) {
+	v, ok := e.topics.Load(name)
+	if ok {
+		return v.(*Topic), true
+	}
+	return nil, false
+}
+
 // GetTopicOffset 查询指定topic当前的消息偏移量
 func (e *Engine) GetTopicOffset(name []byte) uint64 {
 	var offset uint64
@@ -161,11 +178,15 @@ func (e *Engine) RemoveConsumer(addr string) {
 
 	for _, name := range c.Conf.Topics {
 		// 从相关 topic 中删除消费者记录
-		e.GetTopic([]byte(name)).RemoveConsumer(addr)
+		topic, est := e.FindTopic(name)
+		if !est {
+			continue
+		}
+		topic.RemoveConsumer(addr)
 	}
 
 	c.reset()
-	logger.Info(fmt.Sprintf("connection <%s:%s> removed.", proto.ConsumerLinkType, addr))
+	e.Logger().Info(fmt.Sprintf("connection <%s:%s> removed.", proto.ConsumerLinkType, addr))
 	go e.EventHandler().OnConsumerClosed(addr)
 }
 
@@ -177,7 +198,7 @@ func (e *Engine) RemoveProducer(addr string) {
 	p, exist := e.QueryProducer(addr)
 	if exist {
 		p.reset()
-		logger.Debug(fmt.Sprintf("connection <%s:%s> removed.", proto.ProducerLinkType, addr))
+		e.Logger().Debug(fmt.Sprintf("connection <%s:%s> removed.", proto.ProducerLinkType, addr))
 		go e.EventHandler().OnProducerClosed(addr)
 	}
 }
@@ -206,10 +227,10 @@ func (e *Engine) HeartbeatInterval() float64 {
 //		HookHandler 的第一个参数为接收到的消息帧, 可通过 proto.TransferFrame.Unmarshal 方法解码, 第二个参数为当前的客户端连接,
 //		此方法返回"处理是否正确"一个参数, 若定义了 needAck 则需要返回错误消息给客户端
 //
-//	@param	m		proto.Message	实现了 proto.Message 接口的自定义消息, 不允许与内置消息冲突, 可通过 proto.IsMessageDefined 判断
+//	@param	m		proto.Message	实现了	proto.Message	接口的自定义消息,	不允许与内置消息冲突,	可通过	proto.IsMessageDefined	判断
 //	@param	handler	HookHandler		消息处理方法
-//	@param	ack 	proto.Message	是否需要返回响应给客户端
-//	@param	text 	string 			此消息的摘要名称
+//	@param	ack		proto.Message	是否需要返回响应给客户端
+//	@param	text	string			此消息的摘要名称
 func (e *Engine) BindMessageHandler(m proto.Message, ack proto.Message, handler HookHandler, text string) error {
 	if text == "" {
 		rt := reflect.TypeOf(m)
@@ -244,8 +265,8 @@ func (e *Engine) SetCrypto(crypto proto.Crypto) *Engine {
 
 // SetCryptoPlan 设置加密方案
 //
-//	@param	option	string		加密方案, 支持token/no (令牌加密和不加密)
-//	@param	key 	[]string	其他加密参数
+//	@param	option	string		加密方案,	支持token/no	(令牌加密和不加密)
+//	@param	key		[]string	其他加密参数
 func (e *Engine) SetCryptoPlan(option string, key ...string) *Engine {
 	args := append([]string{e.conf.Token}, key...)
 	e.crypto = proto.CreateCrypto(option, args...)
@@ -276,14 +297,14 @@ func (e *Engine) Serve() error {
 		return errors.New("transfer instance is not implemented")
 	}
 
-	logger.Debug("broker starting...")
+	e.Logger().Debug("broker starting...")
 	e.beforeServe()
 	e.scheduler.Run()
 
 	if e.NeedToken() {
-		logger.Debug("broker token authentication is enabled.")
+		e.Logger().Debug("broker token authentication is enabled.")
 	}
-	logger.Debug("broker global crypto: ", e.crypto.String())
+	e.Logger().Debug("broker global crypto: ", e.crypto.String())
 	return e.transfer.Serve()
 }
 
@@ -294,7 +315,7 @@ func New(cs ...Config) *Engine {
 	conf := &Config{
 		Host:             "127.0.0.1",
 		Port:             "7270",
-		MaxOpenConn:      50,
+		MaxOpenConn:      100,
 		BufferSize:       200,
 		HeartbeatTimeout: 60,
 	}
@@ -303,6 +324,7 @@ func New(cs ...Config) *Engine {
 		conf.Port = cs[0].Port
 		conf.MaxOpenConn = cs[0].MaxOpenConn
 		conf.BufferSize = cs[0].BufferSize
+		conf.Logger = cs[0].Logger
 		conf.Token = cs[0].Token
 		conf.EventHandler = cs[0].EventHandler
 		conf.HeartbeatTimeout = cs[0].HeartbeatTimeout

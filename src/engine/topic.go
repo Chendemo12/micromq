@@ -1,6 +1,7 @@
 package engine
 
 import (
+	"bytes"
 	"encoding/binary"
 	"sync"
 	"time"
@@ -10,12 +11,6 @@ import (
 
 var cpmp = proto.NewCPMPool()
 var framePool = proto.NewFramePool()
-
-type HistoryRecordStatus string
-
-const (
-	BuildFailed HistoryRecordStatus = ""
-)
 
 type HistoryRecord struct {
 	frame       *proto.TransferFrame //
@@ -29,16 +24,17 @@ type HistoryRecord struct {
 }
 
 type Topic struct {
-	Name           []byte               `json:"name"`         // 唯一标识
-	HistorySize    int                  `json:"history_size"` // 生产者消息缓冲区大小
-	Offset         uint64               `json:"offset"`       // 当前数据偏移量,仅用于模糊显示
-	counter        *proto.Counter       // 生产者消息计数器,用于计算数据偏移量
-	consumers      *sync.Map            // 全部消费者: {addr: Consumer}
-	queue          chan *proto.CMessage // 等待消费者消费的数据
-	historyRecords *proto.Queue         // proto.Queue[*HistoryRecord], 历史消息,由web查询展示
-	crypto         proto.Crypto         // 加解密器
-	mu             *sync.Mutex
-	onConsumed     func(record *HistoryRecord)
+	Name             []byte                        `json:"name"`         // 唯一标识
+	ForwardingTopics [ForwardingAddrsMaxNum]*Topic `json:"-"`            // 数据转发目标, nil 则不存在
+	HistorySize      int                           `json:"history_size"` // 生产者消息缓冲区大小
+	Offset           uint64                        `json:"offset"`       // 当前数据偏移量,仅用于模糊显示
+	counter          *proto.Counter                // 生产者消息计数器,用于计算数据偏移量
+	consumers        *sync.Map                     // 全部消费者: {addr: Consumer}
+	queue            chan *proto.CMessage          // 等待消费者消费的数据
+	historyRecords   *proto.Queue                  // proto.Queue[*HistoryRecord], 历史消息,由web查询展示
+	crypto           proto.Crypto                  // 加解密器
+	forwardLock      *sync.Mutex                   // ForwardingTopics 锁
+	onConsumed       func(record *HistoryRecord)
 }
 
 // 计算当前消息偏移量
@@ -122,12 +118,14 @@ func (t *Topic) consume() {
 	}
 }
 
-// RangeConsumer 逐个迭代内部消费者
-func (t *Topic) RangeConsumer(fn func(c *Consumer)) {
+// RangeConsumer 逐个迭代内部消费者, if false returned, for-loop will stop
+func (t *Topic) RangeConsumer(fn func(c *Consumer) bool) {
 	t.consumers.Range(func(key, value any) bool {
 		c, ok := value.(*Consumer)
 		if ok {
-			fn(c)
+			if !fn(c) {
+				return false
+			}
 		}
 		return true
 	})
@@ -185,6 +183,51 @@ func (t *Topic) LatestMessage() *HistoryRecord {
 	return r
 }
 
+// AddForwarding 添加转发器
+func (t *Topic) AddForwarding(topic *Topic) (int, error) {
+	t.forwardLock.Lock()
+	defer t.forwardLock.Unlock()
+
+	// 去重，不允许添加重复的
+	for i := 0; i < ForwardingAddrsMaxNum; i++ {
+		if t.ForwardingTopics[i] == nil {
+			t.ForwardingTopics[i] = topic
+			return i, nil
+		}
+		if bytes.Compare(t.ForwardingTopics[i].Name, topic.Name) == 0 {
+			return 0, ErrExchangeExist
+		}
+	}
+
+	return 0, ErrExchangeIsFull
+}
+
+// DelForwarding 删除转发器
+func (t *Topic) DelForwarding(dstName []byte) {
+	t.forwardLock.Lock()
+	defer t.forwardLock.Unlock()
+
+	for i, exchange := range t.ForwardingTopics {
+		if exchange != nil && bytes.Compare(exchange.Name, dstName) == 0 {
+			t.ForwardingTopics[i] = nil
+			break
+		}
+	}
+
+	return
+}
+
+// RangeForwarding if false returned, for-loop will stop
+func (t *Topic) RangeForwarding(fn func(to *Topic) bool) {
+	for _, topic := range t.ForwardingTopics {
+		if topic != nil {
+			if !fn(topic) {
+				return
+			}
+		}
+	}
+}
+
 func NewTopic(name []byte, bufferSize, historySize int) *Topic {
 	t := &Topic{
 		Name:        name,
@@ -194,7 +237,7 @@ func NewTopic(name []byte, bufferSize, historySize int) *Topic {
 		consumers:   &sync.Map{},
 		queue:       make(chan *proto.CMessage, bufferSize),
 		crypto:      &proto.NoCrypto{},
-		mu:          &sync.Mutex{},
+		forwardLock: &sync.Mutex{},
 		onConsumed:  func(_ *HistoryRecord) {},
 	}
 	go t.consume()

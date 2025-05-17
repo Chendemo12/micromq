@@ -49,8 +49,9 @@ func (k Statistic) TopicConsumers() []*TopicConsumer {
 		consumer := &TopicConsumer{}
 		consumer.Name = string(topic.Name)
 		consumer.Consumers = make([]string, 0)
-		topic.RangeConsumer(func(c *Consumer) {
+		topic.RangeConsumer(func(c *Consumer) bool {
 			consumer.Consumers = append(consumer.Consumers, c.Addr)
+			return true
 		})
 		consumers = append(consumers, consumer)
 		return true

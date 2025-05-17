@@ -1,7 +1,7 @@
 package sdk
 
 import (
-	"github.com/Chendemo12/functions/logger"
+	"github.com/Chendemo12/functools/logger"
 	"github.com/Chendemo12/functools/tcp"
 	"github.com/Chendemo12/micromq/src/proto"
 )

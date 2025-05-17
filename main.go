@@ -2,13 +2,12 @@ package main
 
 import (
 	"github.com/Chendemo12/functools/environ"
-	"github.com/Chendemo12/functools/zaplog"
-	"github.com/Chendemo12/micromq/src/engine"
+	"github.com/Chendemo12/functools/logger"
 	"github.com/Chendemo12/micromq/src/mq"
 	"github.com/Chendemo12/micromq/src/proto"
 )
 
-const VERSION = "v0.4.0"
+const VERSION = "v0.3.11"
 const NAME = "micromq"
 
 func main() {
@@ -18,38 +17,22 @@ func main() {
 	conf.Version = VERSION
 	conf.Debug = environ.GetBool("DEBUG", false)
 
-	conf.Broker.Host = environ.GetString("BROKER_LISTEN_HOST", "0.0.0.0")
-	conf.Broker.Port = environ.GetString("BROKER_LISTEN_PORT", "7270")
+	conf.Broker.Host = "0.0.0.0"
+	conf.Broker.Port = environ.GetString("BROKER_CORE_LISTEN_PORT", "7270")
 	conf.Broker.BufferSize = environ.GetInt("BROKER_BUFFER_SIZE", 100)
-	conf.Broker.MaxOpenConn = environ.GetInt("BROKER_MAX_OPEN_SIZE", 50)
+	conf.Broker.MaxOpenConn = environ.GetInt("BROKER_MAX_OPEN_SIZE", 100)
 	conf.Broker.HeartbeatTimeout = float64(environ.GetInt("BROKER_HEARTBEAT_TIMEOUT", 60))
-	conf.Broker.Token = proto.CalcSHA(environ.GetString("BROKER_TOKEN", ""))
+	conf.Broker.Token = proto.CalcSHA(environ.GetString("BROKER_PASSWORD", ""))
 	// 是否开启消息加密
 	msgEncrypt := environ.GetBool("BROKER_MESSAGE_ENCRYPT", false)
 	// 消息加密方案, 目前仅支持基于 Token 的加密
 	msgEncryptPlan := environ.GetString("BROKER_MESSAGE_ENCRYPT_OPTION", "TOKEN")
 
-	conf.EdgeHttpPort = environ.GetString("EDGE_LISTEN_PORT", "7280")
+	conf.EdgeHttpPort = environ.GetString("BROKER_EDGE_LISTEN_PORT", "7271")
 	conf.EdgeEnabled = environ.GetBool("EDGE_ENABLED", false)
 
-	zapConf := &zaplog.Config{
-		Filename:   conf.AppName,
-		Level:      zaplog.WARNING,
-		Rotation:   10,
-		Retention:  5,
-		MaxBackups: 10,
-		Compress:   false,
-	}
-
-	if conf.Debug {
-		zapConf.Level = zaplog.DEBUG
-	}
-
-	engine.Mylogger = zaplog.NewLogger(zapConf)
-	zaplog.Replace(engine.Mylogger)
-
 	handler := mq.New(conf)
-
+	handler.SetLogger(logger.NewDefaultLogger())
 	if msgEncrypt { // 设置消息加密
 		handler.SetCryptoPlan(msgEncryptPlan)
 	}

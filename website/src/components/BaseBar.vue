@@ -44,7 +44,7 @@ getBrokerTitle()
     <div class="flex-grow"/>
 
     <el-menu-item style="width: 50px" index="content">状态</el-menu-item>
-    <el-menu-item style="width: 50px" index="settings">设置</el-menu-item>
+    <el-menu-item style="width: 50px" index="settings" disabled>设置</el-menu-item>
 
     <div class="social-links">
       <div class="svg-container">
