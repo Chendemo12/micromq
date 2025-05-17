@@ -6,7 +6,7 @@ WORKDIR /app
 COPY . .
 
 # 编译可执行程序
-ENV GOPROXY=https://proxy.golang.com.cn,direct
+ENV GOPROXY=https://goproxy.cn,direct
 ENV CGO_ENABLED=0
 RUN go mod download
 RUN go mod vendor
