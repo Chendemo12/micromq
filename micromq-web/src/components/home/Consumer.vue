@@ -120,7 +120,7 @@ refresh()
 
       <el-table-column
           prop="name"
-          label="生产者"
+          label="消费者"
           sortable
           width="auto"
       >
