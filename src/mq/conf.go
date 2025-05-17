@@ -1,7 +1,6 @@
 package mq
 
 import (
-	"github.com/Chendemo12/fastapi-tool/logger"
 	"github.com/Chendemo12/micromq/src/engine"
 	"github.com/Chendemo12/micromq/src/proto"
 )
@@ -31,7 +30,6 @@ var defaultConf = Config{
 		MaxOpenConn:      50,
 		BufferSize:       100,
 		HeartbeatTimeout: 60,
-		Logger:           logger.NewDefaultLogger(),
 		Token:            "",
 		EventHandler:     &CoreEventHandler{},
 		Ctx:              nil,

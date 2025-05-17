@@ -2,36 +2,13 @@ package mq
 
 import (
 	"fmt"
-	"github.com/Chendemo12/fastapi"
-	"github.com/Chendemo12/fastapi-tool/helper"
-	"github.com/Chendemo12/micromq/src/proto"
 	"time"
+
+	"github.com/Chendemo12/fastapi"
+	"github.com/Chendemo12/functools/helper"
+	logger "github.com/Chendemo12/functools/zaplog"
+	"github.com/Chendemo12/micromq/src/proto"
 )
-
-type opt = fastapi.Opt
-
-// EdgeRouter edge路由组
-func EdgeRouter() *fastapi.Router {
-	var router = fastapi.APIRouter("/api/edge", []string{"EDGE"})
-
-	{
-		router.Post("/product", PostProducerMessage, opt{
-			Summary:       "发送一个生产者消息",
-			Description:   "阻塞式发送生产者消息，此接口会在消息成功发送给消费者后返回",
-			RequestModel:  &ProducerForm{},
-			ResponseModel: &ProductResponse{},
-		})
-
-		router.Post("/product/async", AsyncPostProducerMessage, opt{
-			Summary:       "异步发送一个生产者消息",
-			Description:   "非阻塞式发送生产者消息，服务端会在消息解析成功后立刻返回结果，不保证消息已发送给消费者",
-			RequestModel:  &ProducerForm{},
-			ResponseModel: &ProductResponse{},
-		})
-	}
-
-	return router
-}
 
 type ProducerForm struct {
 	fastapi.BaseModel
@@ -76,67 +53,72 @@ func (m *ProductResponse) SchemaDesc() string {
 	return "消息返回值; 仅当 status=Accepted 时才认为服务器接受了请求并正确的处理了消息"
 }
 
-func toPMessage(c *fastapi.Context) (*proto.PMessage, *fastapi.Response) {
-	form := &ProducerForm{}
-	resp := c.ShouldBindJSON(form)
-	if resp != nil {
-		return nil, resp
-	}
+// EdgeRouter edge路由组
+type EdgeRouter struct {
+	fastapi.BaseGroupRouter
+}
 
-	c.Logger().Debug(fmt.Sprintf("receive: %s, from '%s' ", form, c.EngineCtx().IP()))
-	pm := &proto.PMessage{}
+func (r *EdgeRouter) Prefix() string {
+	return "/api/edge"
+}
+
+func (r *EdgeRouter) Tags() []string {
+	return []string{"EDGE"}
+}
+
+func (r *EdgeRouter) Summary() map[string]string {
+	return map[string]string{
+		"PostProduct":      "发送一个生产者消息",
+		"PostProductAsync": "异步发送一个生产者消息",
+	}
+}
+
+func (r *EdgeRouter) Description() map[string]string {
+	return map[string]string{
+		"PostProduct":      "阻塞式发送生产者消息，此接口会在消息成功发送给消费者后返回",
+		"PostProductAsync": "非阻塞式发送生产者消息，服务端会在消息解析成功后立刻返回结果，不保证消息已发送给消费者",
+	}
+}
+
+func (r *EdgeRouter) PostProduct(c *fastapi.Context, param *ProducerForm) (*ProductResponse, error) {
+	logger.Debugf("receive message form: %s", c.MuxContext().ClientIP())
+
 	// 首先反序列化消息体
-	decode, err := helper.Base64Decode(form.Value)
+	decode, err := helper.Base64Decode(param.Value)
 	if err != nil {
-		c.Logger().Info("message UnmarshalFailed about:", c.EngineCtx().IP())
-		c.Logger().Info(err)
-		return nil, c.OKResponse(&ProductResponse{
-			Status:       "UnmarshalFailed",
-			Offset:       0,
-			ResponseTime: time.Now().Unix(),
-			Message:      err.Error(),
-		})
+		//logger.Errorf("message UnmarshalFailed about: %s, err: %v", c.MuxContext().ClientIP(), err)
+		return nil, err
 	}
 
-	// 解密消息
-	if !form.IsEncrypt() {
-		pm.Value = decode
-	} else {
-		if !mq.broker.IsTokenCorrect(form.Token) {
-			c.Logger().Info(c.EngineCtx().IP(), "has wrong token")
-			return nil, c.OKResponse(&ProductResponse{
+	pm := &proto.PMessage{}
+	pm.Key = []byte(param.Key)
+	pm.Topic = []byte(param.Topic)
+	pm.Value = decode
+
+	if param.IsEncrypt() { // 需要解密消息
+		if !mq.broker.IsTokenCorrect(param.Token) {
+			//logger.Debug(c.MuxContext().ClientIP() + " has wrong token")
+			return &ProductResponse{
+				Status:       proto.GetMessageResponseStatusText(proto.TokenIncorrectStatus),
+				Offset:       0,
+				ResponseTime: time.Now().Unix(),
+				Message:      "wrong token",
+			}, nil
+		}
+
+		// 如果设置了密钥，HTTP传输的数据必须进行加密
+		_bytes, err := mq.broker.Crypto().Decrypt(decode)
+		if err != nil {
+			//logger.Warn(c.MuxContext().ClientIP()+" has correct token, but value decrypt failed: ", err)
+			return &ProductResponse{
 				Status:       proto.GetMessageResponseStatusText(proto.TokenIncorrectStatus),
 				Offset:       0,
 				ResponseTime: time.Now().Unix(),
 				Message:      err.Error(),
-			})
-		} else {
-			// 如果设置了密钥，HTTP传输的数据必须进行加密
-			_bytes, _err := mq.broker.Crypto().Decrypt(decode)
-			if _err != nil {
-				c.Logger().Warn(c.EngineCtx().IP(), "has correct token, but value decrypt failed: ", _err)
-				return nil, c.OKResponse(&ProductResponse{
-					Status:       proto.GetMessageResponseStatusText(proto.TokenIncorrectStatus),
-					Offset:       0,
-					ResponseTime: time.Now().Unix(),
-					Message:      _err.Error(),
-				})
-			}
-			pm.Value = _bytes
+			}, nil
 		}
-	}
 
-	pm.Key = []byte(form.Key)
-	pm.Topic = []byte(form.Topic)
-
-	return pm, nil
-}
-
-// PostProducerMessage 同步发送消息
-func PostProducerMessage(c *fastapi.Context) *fastapi.Response {
-	pm, resp := toPMessage(c)
-	if resp != nil {
-		return resp
+		pm.Value = _bytes
 	}
 
 	respForm := &ProductResponse{}
@@ -144,12 +126,11 @@ func PostProducerMessage(c *fastapi.Context) *fastapi.Response {
 	respForm.Offset = mq.broker.Publisher(pm)
 	respForm.ResponseTime = time.Now().Unix()
 
-	c.Logger().Debug(fmt.Sprintf("return: %s, to '%s' ", respForm, c.EngineCtx().IP()))
+	logger.Debugf("return: %s, to '%s' ", respForm, c.MuxContext().ClientIP())
 
-	return c.OKResponse(respForm)
+	return respForm, nil
 }
 
-// AsyncPostProducerMessage 异步生产消息
-func AsyncPostProducerMessage(c *fastapi.Context) *fastapi.Response {
-	return PostProducerMessage(c)
+func (r *EdgeRouter) PostProductAsync(c *fastapi.Context, param *ProducerForm) (*ProductResponse, error) {
+	return r.PostProduct(c, param)
 }

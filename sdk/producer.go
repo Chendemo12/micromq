@@ -1,11 +1,13 @@
 package sdk
 
 import (
-	"github.com/Chendemo12/fastapi-tool/helper"
-	"github.com/Chendemo12/fastapi-tool/logger"
+	"encoding/json"
+
+	"time"
+
+	"github.com/Chendemo12/functools/logger"
 	"github.com/Chendemo12/micromq/src/proto"
 	"github.com/Chendemo12/micromq/src/transfer"
-	"time"
 )
 
 type ProducerHandler interface {
@@ -78,8 +80,8 @@ func (client *Producer) sendToServer() {
 		case pm := <-client.queue:
 			frame := framePool.Get()
 			serverPM := &proto.PMessage{
-				Topic: helper.S2B(pm.Topic),
-				Key:   helper.S2B(pm.Key),
+				Topic: []byte(pm.Topic),
+				Key:   []byte(pm.Key),
 				Value: pm.Value,
 			}
 
@@ -211,16 +213,16 @@ func (client *Producer) Stop() {
 
 // JSONMarshal 序列化方法
 func (client *Producer) JSONMarshal(v any) ([]byte, error) {
-	return helper.JsonMarshal(v)
+	return json.Marshal(v)
 }
 
 func (client *Producer) JSONUnmarshal(data []byte, v any) error {
-	return helper.JsonUnmarshal(data, v)
+	return json.Unmarshal(data, v)
 }
 
-// Beautify 格式化显示字节流
+// Deprecated:Beautify 格式化显示字节流
 func (client *Producer) Beautify(data []byte) string {
-	return helper.HexBeautify(data)
+	return ""
 }
 
 // NewProducer 创建异步生产者,需手动启动

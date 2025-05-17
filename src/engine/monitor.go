@@ -3,10 +3,12 @@ package engine
 import (
 	"context"
 	"fmt"
-	"github.com/Chendemo12/fastapi-tool/cronjob"
-	"github.com/Chendemo12/micromq/src/proto"
 	"sync"
 	"time"
+
+	"github.com/Chendemo12/functools/cronjob"
+	logger "github.com/Chendemo12/functools/zaplog"
+	"github.com/Chendemo12/micromq/src/proto"
 )
 
 type TimeoutEventType string
@@ -111,7 +113,7 @@ func (k *Monitor) closeRegisterTimeout(timeouts []TimeoutEvent) {
 	for _, c := range timeouts {
 		event := c
 		go func() {
-			k.broker.Logger().Info(fmt.Sprintf(
+			logger.Info(fmt.Sprintf(
 				"register timeout, actively close the connection with: %s", event.Addr,
 			))
 			k.broker.closeConnection(event.Addr) // 关闭过期连接
@@ -132,7 +134,7 @@ func (k *Monitor) closeHeartbeatTimeout(timeouts []TimeoutEvent) {
 	for _, c := range timeouts {
 		event := c
 		go func() {
-			k.broker.Logger().Info(fmt.Sprintf(
+			logger.Info(fmt.Sprintf(
 				"%s heartbeat timeout, actively close the connection with: %s",
 				event.LinkType, event.Addr,
 			))

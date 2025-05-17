@@ -110,7 +110,7 @@ package monitor
 
 import (
 	"github.com/Chendemo12/micromq/sdk"
-	"github.com/Chendemo12/fastapi-tool/logger"
+	logger "github.com/Chendemo12/functools/zaplog"
 )
 
 type ProducerHandler struct {

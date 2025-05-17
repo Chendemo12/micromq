@@ -2,9 +2,10 @@ package engine
 
 import (
 	"encoding/binary"
-	"github.com/Chendemo12/micromq/src/proto"
 	"sync"
 	"time"
+
+	"github.com/Chendemo12/micromq/src/proto"
 )
 
 var cpmp = proto.NewCPMPool()

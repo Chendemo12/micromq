@@ -2,14 +2,17 @@ package mq
 
 import (
 	"context"
+	"os"
+
 	"github.com/Chendemo12/fastapi"
-	"github.com/Chendemo12/fastapi-tool/logger"
+	"github.com/Chendemo12/fastapi/middleware/fiberWrapper"
+	"github.com/Chendemo12/fastapi/utils"
 	"github.com/Chendemo12/functools/python"
+	logger "github.com/Chendemo12/functools/zaplog"
 	"github.com/Chendemo12/micromq/src/engine"
 	"github.com/Chendemo12/micromq/src/proto"
 	"github.com/Chendemo12/micromq/src/transfer"
 	"github.com/gofiber/fiber/v2"
-	"os"
 )
 
 var mq *MQ
@@ -21,13 +24,11 @@ type MQ struct {
 	broker   *engine.Engine
 	transfer transfer.Transfer
 	faster   *fastapi.FastApi
-	logger   logger.Iface
 }
 
 func (m *MQ) initBroker() *MQ {
 	// broker 各种事件触发器
 	m.conf.Broker.EventHandler = &CoreEventHandler{}
-	m.conf.Broker.Logger = m.Logger()
 	m.conf.Broker.Ctx = m.ctx
 
 	m.transfer = &transfer.TCPTransfer{}
@@ -39,46 +40,46 @@ func (m *MQ) initBroker() *MQ {
 }
 
 func (m *MQ) initHttp() *MQ {
-	m.faster = newEdge(&fastapi.Config{
-		Title:                   m.conf.AppName,
-		Version:                 m.conf.Version,
-		Description:             m.conf.AppName + " Api Service",
-		Logger:                  m.logger,
-		Debug:                   m.conf.Debug,
-		UserSvc:                 m,
-		ShutdownTimeout:         5,
-		DisableSwagAutoCreate:   !python.Any(!m.conf.StatisticDisabled, m.conf.Debug),
-		EnableDumpPID:           false,
-		DisableResponseValidate: false,
-		DisableRequestValidate:  false,
-		DisableBaseRoutes:       false,
+	app := fastapi.New(fastapi.Config{
+		Title:                 m.conf.AppName,
+		Version:               m.conf.Version,
+		Description:           m.conf.AppName + " Api Service",
+		DisableSwagAutoCreate: !python.Any(!m.conf.StatisticDisabled, m.conf.Debug),
 	})
+	eng := fiberWrapper.Default(fiber.Config{
+		Prefork:       false,               // 多进程模式
+		CaseSensitive: true,                // 区分路由大小写
+		StrictRouting: true,                // 严格路由
+		ServerHeader:  m.conf.AppName,      // 服务器头
+		AppName:       m.conf.AppName,      // 设置为 Response.Header.Server 属性
+		ColorScheme:   fiber.DefaultColors, // 彩色输出
+		JSONEncoder:   utils.JsonMarshal,   // json序列化器
+		JSONDecoder:   utils.JsonUnmarshal, // json解码器
+		BodyLimit:     100 * 1024 * 1024,   // 设置请求体最大为 100MB
+	})
+	eng.App().Use(fiberWrapper.DefaultCORS)
 
+	app.SetMux(eng)
 	if python.Any(m.conf.EdgeEnabled, m.conf.Debug) {
-		m.faster.IncludeRouter(EdgeRouter())
+		app.IncludeRouter(&EdgeRouter{})
 	}
 
 	if python.Any(!m.conf.StatisticDisabled, m.conf.Debug) {
-		m.faster.IncludeRouter(StatRouter())
+		app.IncludeRouter(&StatRouter{})
 	}
+
+	m.faster = app
 
 	return m
 }
 
 func (m *MQ) Config() any { return m.conf }
 
-func (m *MQ) Logger() logger.Iface { return m.logger }
-
 // Ctx 获取根context
 func (m *MQ) Ctx() context.Context { return m.ctx }
 
 // Stat 获取统计信息类
 func (m *MQ) Stat() *engine.Statistic { return m.broker.Stat() }
-
-func (m *MQ) SetLogger(logger logger.Iface) *MQ {
-	m.logger = logger
-	return m
-}
 
 // SetCrypto 设置加解密器
 func (m *MQ) SetCrypto(crypto proto.Crypto) *MQ {
@@ -96,10 +97,6 @@ func (m *MQ) SetCryptoPlan(option string, key ...string) *MQ {
 
 // Serve 阻塞启动
 func (m *MQ) Serve() {
-	if m.logger == nil {
-		m.logger = logger.NewDefaultLogger()
-	}
-
 	// 初始化服务
 	m.initBroker()
 	m.broker.SetCrypto(m.conf.crypto)
@@ -110,7 +107,7 @@ func (m *MQ) Serve() {
 	go func() {
 		err := m.broker.Serve()
 		if err != nil {
-			m.Logger().Error("broker starts failed: ", err)
+			logger.Error("broker starts failed: ", err)
 			os.Exit(1)
 		}
 	}()
@@ -158,26 +155,4 @@ func New(cs ...Config) *MQ {
 	mq.ctx, mq.cancel = context.WithCancel(context.Background())
 
 	return mq
-}
-
-func newEdge(conf *fastapi.Config) *fastapi.FastApi {
-	conf.DisableResponseValidate = true
-	conf.EnableMultipleProcess = false
-
-	app := fastapi.New(*conf)
-	// Enable CORS
-	app.Use(func(c *fiber.Ctx) error {
-		c.Set("Access-Control-Allow-Origin", "*")
-		c.Set("Access-Control-Allow-Headers", "*")
-		c.Set("Access-Control-Allow-Credentials", "false")
-		c.Set("Access-Control-Allow-Methods", "GET,POST,OPTIONS,DELETE,PATCH")
-
-		if c.Method() == fiber.MethodOptions {
-			c.Status(fiber.StatusOK)
-			return nil
-		}
-		return c.Next()
-	})
-
-	return app
 }

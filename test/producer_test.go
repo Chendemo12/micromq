@@ -2,7 +2,7 @@ package test
 
 import (
 	"context"
-	"github.com/Chendemo12/fastapi-tool/logger"
+	logger "github.com/Chendemo12/functools/zaplog"
 	"github.com/Chendemo12/micromq/sdk"
 	"testing"
 	"time"

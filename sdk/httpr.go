@@ -3,18 +3,16 @@ package sdk
 import (
 	"errors"
 	"fmt"
-	"github.com/Chendemo12/fastapi-tool/helper"
+	"net"
+
+	"github.com/Chendemo12/functools/helper"
 	"github.com/Chendemo12/functools/httpc"
 	"github.com/Chendemo12/micromq/src/proto"
-	"net"
 )
 
 // NewHttpProducer 创建一个HTTP的生产者
 func NewHttpProducer(host, port string) *HttpProducer {
-	c, _ := httpc.NewHttpr(host, port)
-
 	return &HttpProducer{
-		client:    c,
 		addr:      net.JoinHostPort(host, port),
 		path:      "/api/edge/product",
 		asyncPath: "/api/edge/product/async",
@@ -88,7 +86,6 @@ func (m ProductResponse) IsOK() bool {
 //			// ok
 //		}
 type HttpProducer struct {
-	client    *httpc.Httpr
 	addr      string
 	path      string
 	asyncPath string
@@ -100,7 +97,7 @@ type HttpProducer struct {
 func (p *HttpProducer) Addr() string { return p.addr }
 
 // Url 请求路由
-func (p *HttpProducer) Url() string { return p.addr + p.addr }
+func (p *HttpProducer) Url() string { return p.addr + p.path }
 
 // AsyncUrl 异步方法请求路由
 func (p *HttpProducer) AsyncUrl() string { return p.addr + p.asyncPath }
@@ -151,16 +148,7 @@ func (p *HttpProducer) Send(topic, key string, value []byte) (*ProductResponse, 
 	// base64 编码
 	msg.Value = helper.Base64Encode(content)
 
-	resp := &ProductResponse{}
-	// 发起HTTP请求
-	opt := &httpc.Opt{RequestModel: msg, ResponseModel: resp, ContextType: "application/json"}
-	opt = p.client.Post(p.path, opt)
-
-	if !opt.IsOK() { // 请求发起失败
-		return nil, opt.Err
-	}
-
-	return resp, nil
+	return httpc.Post[*ProductResponse](p.Url(), nil, msg)
 }
 
 // Post 发送消息

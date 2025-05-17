@@ -5,17 +5,16 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/Chendemo12/fastapi-tool/logger"
-	"github.com/Chendemo12/micromq/src/proto"
-	"github.com/Chendemo12/micromq/src/transfer"
 	"reflect"
 	"sync"
 	"time"
+
+	logger "github.com/Chendemo12/functools/zaplog"
+	"github.com/Chendemo12/micromq/src/proto"
+	"github.com/Chendemo12/micromq/src/transfer"
 )
 
 func (e *Engine) Ctx() context.Context { return e.conf.Ctx }
-
-func (e *Engine) Logger() logger.Iface { return e.conf.Logger }
 
 func (e *Engine) EventHandler() EventHandler { return e.conf.EventHandler }
 
@@ -166,7 +165,7 @@ func (e *Engine) RemoveConsumer(addr string) {
 	}
 
 	c.reset()
-	e.Logger().Info(fmt.Sprintf("connection <%s:%s> removed.", proto.ConsumerLinkType, addr))
+	logger.Info(fmt.Sprintf("connection <%s:%s> removed.", proto.ConsumerLinkType, addr))
 	go e.EventHandler().OnConsumerClosed(addr)
 }
 
@@ -178,7 +177,7 @@ func (e *Engine) RemoveProducer(addr string) {
 	p, exist := e.QueryProducer(addr)
 	if exist {
 		p.reset()
-		e.Logger().Debug(fmt.Sprintf("connection <%s:%s> removed.", proto.ProducerLinkType, addr))
+		logger.Debug(fmt.Sprintf("connection <%s:%s> removed.", proto.ProducerLinkType, addr))
 		go e.EventHandler().OnProducerClosed(addr)
 	}
 }
@@ -277,14 +276,14 @@ func (e *Engine) Serve() error {
 		return errors.New("transfer instance is not implemented")
 	}
 
-	e.Logger().Debug("broker starting...")
+	logger.Debug("broker starting...")
 	e.beforeServe()
 	e.scheduler.Run()
 
 	if e.NeedToken() {
-		e.Logger().Debug("broker token authentication is enabled.")
+		logger.Debug("broker token authentication is enabled.")
 	}
-	e.Logger().Debug("broker global crypto: ", e.crypto.String())
+	logger.Debug("broker global crypto: ", e.crypto.String())
 	return e.transfer.Serve()
 }
 
@@ -304,7 +303,6 @@ func New(cs ...Config) *Engine {
 		conf.Port = cs[0].Port
 		conf.MaxOpenConn = cs[0].MaxOpenConn
 		conf.BufferSize = cs[0].BufferSize
-		conf.Logger = cs[0].Logger
 		conf.Token = cs[0].Token
 		conf.EventHandler = cs[0].EventHandler
 		conf.HeartbeatTimeout = cs[0].HeartbeatTimeout

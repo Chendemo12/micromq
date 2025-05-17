@@ -2,6 +2,8 @@ package engine
 
 import (
 	"fmt"
+
+	logger "github.com/Chendemo12/functools/zaplog"
 	"github.com/Chendemo12/micromq/src/proto"
 )
 
@@ -22,21 +24,21 @@ func (e *Engine) registerParser(args *ChainArgs) (stop bool) {
 
 	if err != nil { // 解密或反序列化失败
 		args.resp.Status = proto.ReRegisterStatus
-		e.Logger().Info(args.con.Addr(), " register message decrypt failed: ", err.Error())
+		logger.Info(args.con.Addr(), " register message decrypt failed: ", err.Error())
 	} else {
-		e.Logger().Info(args.con.Addr(), " register message decrypt successfully.")
+		logger.Info(args.con.Addr(), " register message decrypt successfully.")
 	}
 
 	return
 }
 
 func (e *Engine) registerAuth(args *ChainArgs) (stop bool) {
-	e.Logger().Info(fmt.Sprintf("receive '%s' from  %s", args.rm, args.con.Addr()))
+	logger.Info(fmt.Sprintf("receive '%s' from  %s", args.rm, args.con.Addr()))
 	// 此处已解密成功
 	if !e.IsTokenCorrect(args.rm.Token) {
 		// 需要认证，但是密钥不正确
 		args.resp.Status = proto.TokenIncorrectStatus
-		e.Logger().Info(args.con.Addr(), " has wrong token, refused.")
+		logger.Info(args.con.Addr(), " has wrong token, refused.")
 
 		stop = true
 	}
@@ -85,10 +87,10 @@ func (e *Engine) registerAllow(args *ChainArgs) (stop bool) {
 
 	// 输出日志
 	if args.resp.Status == proto.AcceptedStatus {
-		e.Logger().Info(fmt.Sprintf("%s::%s register successfully", args.con.Addr(), args.rm.Type))
+		logger.Info(fmt.Sprintf("%s::%s register successfully", args.con.Addr(), args.rm.Type))
 	} else {
 		stop = true
-		e.Logger().Warn(fmt.Sprintf(
+		logger.Warn(fmt.Sprintf(
 			"%s register failed, because of: %s, actively close the connection",
 			args.con.Addr(), proto.GetMessageResponseStatusText(args.resp.Status),
 		))
@@ -121,7 +123,7 @@ func (e *Engine) producerNotFound(args *ChainArgs) (stop bool) {
 	producer, exist := e.QueryProducer(args.con.Addr())
 
 	if !exist {
-		e.Logger().Debug("found unregister producer, let re-register: ", args.con.Addr())
+		logger.Debug("found unregister producer, let re-register: ", args.con.Addr())
 		// 未注册, 令客户端重新注册
 		args.resp.Status = proto.ReRegisterStatus
 		stop = true

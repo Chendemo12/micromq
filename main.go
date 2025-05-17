@@ -3,11 +3,12 @@ package main
 import (
 	"github.com/Chendemo12/functools/environ"
 	"github.com/Chendemo12/functools/zaplog"
+	"github.com/Chendemo12/micromq/src/engine"
 	"github.com/Chendemo12/micromq/src/mq"
 	"github.com/Chendemo12/micromq/src/proto"
 )
 
-const VERSION = "v0.3.7"
+const VERSION = "v0.4.0"
 const NAME = "micromq"
 
 func main() {
@@ -44,8 +45,11 @@ func main() {
 		zapConf.Level = zaplog.DEBUG
 	}
 
+	engine.Mylogger = zaplog.NewLogger(zapConf)
+	zaplog.Replace(engine.Mylogger)
+
 	handler := mq.New(conf)
-	handler.SetLogger(zaplog.NewLogger(zapConf).Sugar())
+
 	if msgEncrypt { // 设置消息加密
 		handler.SetCryptoPlan(msgEncryptPlan)
 	}

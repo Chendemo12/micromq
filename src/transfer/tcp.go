@@ -2,8 +2,9 @@ package transfer
 
 import (
 	"fmt"
-	"github.com/Chendemo12/fastapi-tool/logger"
+
 	"github.com/Chendemo12/functools/tcp"
+	logger "github.com/Chendemo12/functools/zaplog"
 	"github.com/Chendemo12/micromq/src/proto"
 )
 
@@ -13,7 +14,6 @@ type TCPTransfer struct {
 	port              string
 	maxOpenConn       int // 允许的最大连接数, 即 生产者+消费者最多有 maxOpenConn 个
 	tcps              *tcp.Server
-	logger            logger.Iface
 	onConnected       func(c Conn)
 	onClosed          func(addr string)
 	onReceived        func(frame *proto.TransferFrame, c Conn)
@@ -27,7 +27,6 @@ func (t *TCPTransfer) init() *TCPTransfer {
 			Port:           t.port,
 			MessageHandler: t,
 			ByteOrder:      "big",
-			Logger:         t.logger,
 			MaxOpenConn:    t.maxOpenConn,
 		},
 	)
@@ -46,10 +45,6 @@ func (t *TCPTransfer) SetPort(port string) {
 
 func (t *TCPTransfer) SetMaxOpenConn(num int) {
 	t.maxOpenConn = num
-}
-
-func (t *TCPTransfer) SetLogger(logger logger.Iface) {
-	t.logger = logger
 }
 
 // SetOnConnectedHandler 设置当客户端连接成功时的事件
@@ -73,7 +68,7 @@ func (t *TCPTransfer) SetOnFrameParseErrorHandler(fn func(frame *proto.TransferF
 }
 
 func (t *TCPTransfer) OnAccepted(r *tcp.Remote) error {
-	t.logger.Debug(r.Addr(), " connected.")
+	logger.Debug(r.Addr(), " connected.")
 	t.onConnected(r)
 
 	return nil
@@ -82,7 +77,7 @@ func (t *TCPTransfer) OnAccepted(r *tcp.Remote) error {
 // OnClosed 连接关闭, 删除此连接的消费者记录或生产者记录
 func (t *TCPTransfer) OnClosed(r *tcp.Remote) error {
 	addr := r.Addr()
-	t.logger.Debug(addr, " connection lost.")
+	logger.Debug(addr, " connection lost.")
 
 	t.onClosed(addr)
 	return nil
@@ -102,7 +97,7 @@ func (t *TCPTransfer) Handler(r *tcp.Remote) error {
 		defer framePool.Put(f)
 
 		if err != nil {
-			t.logger.Warn(fmt.Errorf("server parse frame failed: %v", err))
+			logger.Warn(fmt.Errorf("server parse frame failed: %v", err))
 			t.onFrameParseError(f, c)
 		} else {
 			t.onReceived(f, c)
@@ -123,5 +118,5 @@ func (t *TCPTransfer) Stop() {
 	if t.tcps != nil {
 		t.tcps.Stop()
 	}
-	t.logger.Info("tcp server stopped!")
+	logger.Info("tcp server stopped!")
 }
