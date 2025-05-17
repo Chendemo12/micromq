@@ -3,10 +3,11 @@ package sdk
 import (
 	"errors"
 	"fmt"
+	"strings"
+
 	"github.com/Chendemo12/functools/helper"
 	"github.com/Chendemo12/functools/httpc"
 	"github.com/Chendemo12/micromq/src/proto"
-	"strings"
 )
 
 // NewHttpProducer 创建一个HTTP的生产者

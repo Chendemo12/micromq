@@ -2,6 +2,10 @@ package mq
 
 import (
 	"fmt"
+	"net/http"
+	"strings"
+	"time"
+
 	"github.com/Chendemo12/fastapi"
 	"github.com/Chendemo12/fastapi/middleware/fiberWrapper"
 	"github.com/Chendemo12/fastapi/middleware/routers"
@@ -11,9 +15,6 @@ import (
 	"github.com/Chendemo12/functools/python"
 	"github.com/Chendemo12/micromq/src/engine"
 	"github.com/Chendemo12/micromq/src/proto"
-	"net/http"
-	"strings"
-	"time"
 )
 
 var pathSchema = pathschema.NewComposition(&pathschema.Backslash{}, &pathschema.LowerCase{})
@@ -23,7 +24,6 @@ func CreateEdge(conf *Config) *fastapi.Wrapper {
 		Title:                 conf.AppName,
 		Version:               conf.Version,
 		Description:           conf.AppName + " Api Service",
-		Debug:                 conf.Debug,
 		ShutdownTimeout:       5,
 		DisableSwagAutoCreate: !python.Any(!conf.StatisticDisabled, conf.Debug),
 	})

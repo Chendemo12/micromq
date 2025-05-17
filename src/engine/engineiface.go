@@ -5,12 +5,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/Chendemo12/functools/logger"
-	"github.com/Chendemo12/micromq/src/proto"
-	"github.com/Chendemo12/micromq/src/transfer"
 	"reflect"
 	"sync"
 	"time"
+
+	"github.com/Chendemo12/functools/logger"
+	"github.com/Chendemo12/micromq/src/proto"
+	"github.com/Chendemo12/micromq/src/transfer"
 )
 
 func (e *Engine) Ctx() context.Context { return e.conf.Ctx }

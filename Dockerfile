@@ -1,5 +1,5 @@
 # 阶段一：构建镜像
-FROM golang:1.21 AS builder
+FROM golang:1.23 AS builder
 
 WORKDIR /app
 # 将源代码复制到容器中

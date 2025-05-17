@@ -1,10 +1,11 @@
 package engine
 
 import (
-	"github.com/Chendemo12/micromq/src/proto"
-	"github.com/Chendemo12/micromq/src/transfer"
 	"sync"
 	"time"
+
+	"github.com/Chendemo12/micromq/src/proto"
+	"github.com/Chendemo12/micromq/src/transfer"
 )
 
 type ConsumerConfig struct {

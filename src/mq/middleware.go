@@ -1,9 +1,10 @@
 package mq
 
 import (
+	"regexp"
+
 	"github.com/Chendemo12/micromq/src/cache"
 	"github.com/gofiber/fiber/v2"
-	"regexp"
 )
 
 func init() {

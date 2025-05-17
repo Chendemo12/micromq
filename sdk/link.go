@@ -4,14 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"github.com/Chendemo12/functools/logger"
-	"github.com/Chendemo12/functools/tcp"
-	"github.com/Chendemo12/micromq/src/proto"
-	"github.com/Chendemo12/micromq/src/transfer"
 	"io"
 	"strings"
 	"sync/atomic"
 	"time"
+
+	"github.com/Chendemo12/functools/logger"
+	"github.com/Chendemo12/functools/tcp"
+	"github.com/Chendemo12/micromq/src/proto"
+	"github.com/Chendemo12/micromq/src/transfer"
 )
 
 const DefaultRegisterDelay = time.Second * 2

@@ -3,10 +3,11 @@ package proto
 import (
 	"container/list"
 	"errors"
-	"github.com/Chendemo12/functools/helper"
 	"io"
 	"sync"
 	"sync/atomic"
+
+	"github.com/Chendemo12/functools/helper"
 )
 
 type NoCopy struct{}

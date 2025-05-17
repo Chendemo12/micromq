@@ -3,9 +3,10 @@ package sdk
 import (
 	"encoding/binary"
 	"fmt"
+	"time"
+
 	"github.com/Chendemo12/functools/helper"
 	"github.com/Chendemo12/micromq/src/proto"
-	"time"
 )
 
 // ConsumerMessage 用于SDK直接传递给消费者的单条数据消息

@@ -2,9 +2,10 @@ package sdk
 
 import (
 	"errors"
-	"github.com/Chendemo12/micromq/src/proto"
 	"sync"
 	"time"
+
+	"github.com/Chendemo12/micromq/src/proto"
 )
 
 //goland:noinspection GoUnusedGlobalVariable

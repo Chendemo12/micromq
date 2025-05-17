@@ -3,9 +3,10 @@ package cache
 import (
 	"errors"
 	"fmt"
+	"runtime/debug"
+
 	"github.com/Chendemo12/fastapi/utils"
 	"github.com/coocood/freecache"
-	"runtime/debug"
 )
 
 const OneMinute = 60

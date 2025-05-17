@@ -6,8 +6,9 @@ import (
 	"encoding/binary"
 	"errors"
 	"fmt"
-	"github.com/Chendemo12/functools/helper"
 	"io"
+
+	"github.com/Chendemo12/functools/helper"
 )
 
 // ========================================== 生产者消息数据协议定义 ==========================================
